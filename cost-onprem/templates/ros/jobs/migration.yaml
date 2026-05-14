@@ -1,3 +1,4 @@
+{{- if .Values.ros.enabled }}
 ---
 apiVersion: batch/v1
 kind: Job
@@ -104,3 +105,4 @@ spec:
       volumes:
       - name: tmp
         emptyDir: {}
+{{- end }}

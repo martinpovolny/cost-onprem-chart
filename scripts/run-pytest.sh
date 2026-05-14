@@ -110,6 +110,10 @@ show_help() {
     echo "UI Tests:"
     echo "  UI tests are included by default. Use --no-ui to exclude them."
     echo "  Use --ui to run ONLY UI tests."
+    echo ""
+    echo "ROS Tests:"
+    echo "  ROS tests are included by default. Use --no-ros to exclude them."
+    echo "  Useful when ros.enabled=false (e.g. arm64 CRC without native ROS image)."
     exit 0
 }
 
@@ -241,6 +245,7 @@ main() {
     local include_ui=true   # UI tests included by default
     local exclude_ui=false  # Flag to explicitly exclude UI
     local ui_only=false     # Flag for running only UI tests
+    local exclude_ros=false # Flag to exclude ROS tests (use when ros.enabled=false)
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -283,6 +288,11 @@ main() {
                 # Exclude UI tests
                 exclude_ui=true
                 include_ui=false
+                shift
+                ;;
+            --no-ros)
+                # Exclude ROS tests (use when ros.enabled=false)
+                exclude_ros=true
                 shift
                 ;;
             # Filter options
@@ -360,11 +370,20 @@ main() {
         local marker_expr
         marker_expr=$(IFS=" or "; echo "${pytest_markers[*]}")
         pytest_args+=("-m" "$marker_expr")
-    elif [[ "$exclude_ui" == "true" ]]; then
-        # Exclude UI tests when --no-ui is specified and no other markers
-        pytest_args+=("-m" "not ui")
+    else
+        # Build exclusion expression from --no-ui and/or --no-ros
+        local exclusions=()
+        [[ "$exclude_ui"  == "true" ]] && exclusions+=("not ui")
+        [[ "$exclude_ros" == "true" ]] && exclusions+=("not ros")
+        if [[ ${#exclusions[@]} -gt 0 ]]; then
+            local excl_expr
+            # Join with " and " — can't use IFS for multi-char separator
+            excl_expr="${exclusions[0]}"
+            for e in "${exclusions[@]:1}"; do excl_expr+=" and $e"; done
+            pytest_args+=("-m" "$excl_expr")
+        fi
     fi
-    # If no markers and no --no-ui, run all tests (including UI) - no -m flag needed
+    # If no markers and no exclusions, run all tests - no -m flag needed
 
     # Add any extra arguments
     if [[ ${#pytest_extra_args[@]} -gt 0 ]]; then

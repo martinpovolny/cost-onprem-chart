@@ -1,0 +1,30 @@
+# CRC arm64 (Apple Silicon) overrides — layered on top of values-crc.yaml.
+# Applied automatically by deploy-to-crc.sh and the Makefile on arm64 hosts.
+#
+# Why these overrides are needed:
+#   - ros-ocp-backend is Go/amd64-only; crashes under QEMU (lfstack.push invalid packing)
+#   - Default koku image is amd64-only; segfaults under QEMU during Django startup
+#   - ingress image tag in values.yaml may be deleted; kept current here
+#
+# To refresh the ingress tag when it expires:
+#   curl -s "https://quay.io/api/v1/repository/redhat-user-workloads/hcc-integrations-tenant/ingress/tag/?limit=5&onlyActiveTags=true" \
+#     | python3 -c "import sys,json; [print(t['name'],t.get('expiration','no expiry')) \
+#         for t in json.load(sys.stdin)['tags'] if not t['name'].startswith('sha256')]"
+
+# Disable all ROS components — no native arm64 image for ros-ocp-backend.
+ros:
+  enabled: false
+
+# Use locally built arm64 koku image.
+# Build: cd <koku-repo> && make docker-build && docker tag koku_base:latest quay.io/martin_povolny/koku:latest && docker push quay.io/martin_povolny/koku:latest
+costManagement:
+  api:
+    image:
+      repository: quay.io/martin_povolny/koku
+      tag: latest
+
+# insights-ingress-go image tag — update when the current tag expires.
+# Current tag expires: 2026-05-18
+ingress:
+  image:
+    tag: "f8da496"

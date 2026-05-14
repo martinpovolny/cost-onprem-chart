@@ -1,4 +1,4 @@
-{{- if .Values.ros.housekeeper.partitionCleaner.enabled }}
+{{- if and .Values.ros.enabled .Values.ros.housekeeper.partitionCleaner.enabled }}
 apiVersion: batch/v1
 kind: CronJob
 metadata:

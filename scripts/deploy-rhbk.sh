@@ -45,6 +45,9 @@ COST_MGMT_UI_CLIENT_ID=${COST_MGMT_UI_CLIENT_ID:-cost-management-ui}
 COST_MGMT_NAMESPACE=${COST_MGMT_NAMESPACE:-cost-onprem}
 COST_MGMT_RELEASE_NAME=${COST_MGMT_RELEASE_NAME:-cost-onprem}
 KEYCLOAK_INSTANCES=${KEYCLOAK_INSTANCES:-1}
+# Set to "community" to use the upstream community Keycloak operator instead of RHBK.
+# Required on arm64 (e.g. Apple Silicon) where RHBK images are not published.
+KEYCLOAK_OPERATOR=${KEYCLOAK_OPERATOR:-rhbk}
 
 # OpenShift cluster-specific configuration (auto-detected)
 CLUSTER_DOMAIN=""
@@ -209,6 +212,22 @@ create_namespace() {
 install_rhbk_operator() {
     echo_header "INSTALLING RED HAT BUILD OF KEYCLOAK OPERATOR"
 
+    local operator_sub_name operator_deployment_name operator_source operator_channel operator_package
+    if [[ "${KEYCLOAK_OPERATOR}" == "community" ]]; then
+        echo_info "Using community Keycloak operator (KEYCLOAK_OPERATOR=community)"
+        operator_sub_name="keycloak-operator"
+        operator_package="keycloak-operator"
+        operator_source="community-operators"
+        operator_channel="fast"
+        operator_deployment_name="keycloak-operator"
+    else
+        operator_sub_name="rhbk-operator"
+        operator_package="rhbk-operator"
+        operator_source="redhat-operators"
+        operator_channel="stable-v22"
+        operator_deployment_name="rhbk-operator"
+    fi
+
     # Create OperatorGroup if it doesn't exist
     if ! oc get operatorgroup rhbk-operator-group -n "$NAMESPACE" >/dev/null 2>&1; then
         echo_info "Creating OperatorGroup..."
@@ -228,43 +247,42 @@ EOF
     fi
 
     # Check if operator is already installed
-    if oc get subscription rhbk-operator -n "$NAMESPACE" >/dev/null 2>&1; then
-        echo_warning "RHBK Operator subscription already exists"
+    if oc get subscription "$operator_sub_name" -n "$NAMESPACE" >/dev/null 2>&1; then
+        echo_warning "Keycloak Operator subscription already exists"
     else
-        echo_info "Creating RHBK Operator subscription..."
+        echo_info "Creating Keycloak Operator subscription (source: $operator_source, channel: $operator_channel)..."
 
         cat <<EOF | oc apply -f -
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
-  name: rhbk-operator
+  name: $operator_sub_name
   namespace: $NAMESPACE
 spec:
-  channel: stable-v22
+  channel: $operator_channel
   installPlanApproval: Automatic
-  name: rhbk-operator
-  source: redhat-operators
+  name: $operator_package
+  source: $operator_source
   sourceNamespace: openshift-marketplace
 EOF
-        echo_success "✓ RHBK Operator subscription created"
+        echo_success "✓ Keycloak Operator subscription created"
     fi
 
     # Wait for operator to be ready
-    echo_info "Waiting for RHBK operator to be ready..."
+    echo_info "Waiting for Keycloak operator ($operator_deployment_name) to be ready..."
     local timeout=300
     local elapsed=0
 
     while [ $elapsed -lt $timeout ]; do
-        # RHBK operator deployment name is different
-        if oc get deployment rhbk-operator -n "$NAMESPACE" >/dev/null 2>&1; then
-            if oc get deployment rhbk-operator -n "$NAMESPACE" -o jsonpath='{.status.readyReplicas}' | grep -q "1"; then
-                echo_success "✓ RHBK Operator is ready"
+        if oc get deployment "$operator_deployment_name" -n "$NAMESPACE" >/dev/null 2>&1; then
+            if oc get deployment "$operator_deployment_name" -n "$NAMESPACE" -o jsonpath='{.status.readyReplicas}' | grep -q "1"; then
+                echo_success "✓ Keycloak Operator is ready"
                 return 0
             fi
         fi
 
         if [ $((elapsed % 30)) -eq 0 ]; then
-            echo_info "Still waiting for RHBK operator... (${elapsed}s elapsed)"
+            echo_info "Still waiting for Keycloak operator... (${elapsed}s elapsed)"
         fi
 
         sleep 5
@@ -447,6 +465,14 @@ deploy_keycloak() {
     fi
 
     local KEYCLOAK_HOSTNAME="keycloak-${NAMESPACE}.${CLUSTER_DOMAIN}"
+    # Community operator v26+ requires full URLs for both hostname and admin fields;
+    # RHBK v22 accepted bare hostnames.
+    local KEYCLOAK_HOSTNAME_URL="$KEYCLOAK_HOSTNAME"
+    local KEYCLOAK_ADMIN_URL="$KEYCLOAK_HOSTNAME"
+    if [[ "${KEYCLOAK_OPERATOR}" == "community" ]]; then
+        KEYCLOAK_HOSTNAME_URL="https://$KEYCLOAK_HOSTNAME"
+        KEYCLOAK_ADMIN_URL="https://$KEYCLOAK_HOSTNAME"
+    fi
     echo_info "Keycloak will be accessible at: https://$KEYCLOAK_HOSTNAME"
 
     # Check if Keycloak instance already exists
@@ -477,8 +503,8 @@ spec:
   http:
     httpEnabled: true
   hostname:
-    hostname: $KEYCLOAK_HOSTNAME
-    admin: $KEYCLOAK_HOSTNAME
+    hostname: $KEYCLOAK_HOSTNAME_URL
+    admin: $KEYCLOAK_ADMIN_URL
     strict: false
     strictBackchannel: false
   ingress:
@@ -987,17 +1013,23 @@ validate_deployment() {
         validation_errors=$((validation_errors + 1))
     fi
 
-    # Check operator
-    if oc get deployment rhbk-operator -n "$NAMESPACE" >/dev/null 2>&1; then
-        local ready_replicas=$(oc get deployment rhbk-operator -n "$NAMESPACE" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+    # Check operator (deployment name differs between rhbk and community)
+    local _op_deploy
+    if [[ "${KEYCLOAK_OPERATOR}" == "community" ]]; then
+        _op_deploy="keycloak-operator"
+    else
+        _op_deploy="rhbk-operator"
+    fi
+    if oc get deployment "$_op_deploy" -n "$NAMESPACE" >/dev/null 2>&1; then
+        local ready_replicas=$(oc get deployment "$_op_deploy" -n "$NAMESPACE" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
         if [ "$ready_replicas" = "1" ]; then
-            echo_success "✓ RHBK Operator is running"
+            echo_success "✓ Keycloak Operator is running"
         else
-            echo_error "✗ RHBK Operator is not ready"
+            echo_error "✗ Keycloak Operator is not ready"
             validation_errors=$((validation_errors + 1))
         fi
     else
-        echo_error "✗ RHBK Operator not found"
+        echo_error "✗ Keycloak Operator not found"
         validation_errors=$((validation_errors + 1))
     fi
 
@@ -1566,6 +1598,8 @@ case "${1:-}" in
         echo "  COST_MGMT_RELEASE_NAME UI release name for URL construction (default: cost-onprem)"
         echo "  COST_MGMT_UI_BASE_URL     UI base URL (auto-detected if not set)"
         echo "  KEYCLOAK_INSTANCES        Number of instances (default: 1)"
+        echo "  KEYCLOAK_OPERATOR         Operator to use: rhbk (default) or community."
+        echo "                            Use community on arm64 (Apple Silicon) -- RHBK has no arm64 images."
         echo ""
         echo "Note: Admin credentials are auto-generated by RHBK operator"
         echo "      Access them via: oc get secret keycloak-initial-admin -n keycloak"

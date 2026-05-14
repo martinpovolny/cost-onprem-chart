@@ -1,3 +1,4 @@
+{{- if .Values.ros.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -115,3 +116,4 @@ spec:
         - name: cdapp-config
           configMap:
             name: {{ include "cost-onprem.fullname" . }}-cdapp-config
+{{- end }}

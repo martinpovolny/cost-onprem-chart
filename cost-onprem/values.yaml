@@ -43,6 +43,10 @@ global:
 # ROS (Resource Optimization Service) - Top-level Service
 # -----------------------------------------------------------------------------
 ros:
+  # Set to false to disable all ROS components (useful on arm64 where ros-ocp-backend
+  # has no native image and crashes under QEMU emulation).
+  enabled: true
+
   # Unified image configuration for all ROS components
   # All ROS services (api, processor, recommendationPoller, housekeeper, partitionCleaner)
   # use the same image

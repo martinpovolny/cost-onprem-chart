@@ -186,9 +186,17 @@ verify_existing_operator() {
         if [[ "$operator_image" =~ :3\.1\. ]] || [[ "$operator_image" =~ :0\.48\. ]]; then
             echo_success "AMQ Streams operator version is compatible with Kafka $KAFKA_VERSION"
             return 0
+        fi
+        # Image may use a digest reference (@sha256:...) instead of a tag — fall back to CSV name check
+        local csv_name
+        csv_name=$(kubectl get csv -A -o jsonpath='{.items[?(@.spec.displayName=="Streams for Apache Kafka")].metadata.name}' 2>/dev/null | tr ' ' '\n' | head -1)
+        if [[ "$csv_name" =~ amqstreams\.v3\.1\. ]]; then
+            echo_success "AMQ Streams operator version is compatible (CSV: $csv_name)"
+            return 0
         else
             echo_error "AMQ Streams operator version may not be compatible with Kafka $KAFKA_VERSION"
-            echo_error "Found: $operator_image"
+            echo_error "Found image: $operator_image"
+            echo_error "Found CSV: $csv_name"
             echo_error "Required: AMQ Streams 3.1.x (Strimzi 0.48.x) for Kafka 4.1.0 support"
             return 1
         fi

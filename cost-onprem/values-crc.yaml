@@ -1,0 +1,159 @@
+# CRC (CodeReady Containers / local OpenShift) resource overrides — ARCH-AGNOSTIC.
+# Applies to both arm64 (Apple Silicon) and amd64 CRC installs.
+#
+# The CRC node has 18GB RAM, but system pods + Keycloak + Kafka consume ~15GB of
+# *requests* before our workloads schedule. All cost-onprem requests are set to 64Mi
+# so the scheduler places pods; actual usage is bounded by limits (unchanged).
+#
+# Architecture-specific overrides (ros.enabled, koku image, ingress tag) live in:
+#   values-crc-arm64.yaml  — applied automatically by deploy-to-crc.sh on arm64
+#
+# Correct values paths (verified from chart templates):
+#   ingress/kruize/database  → .Values.resources.{application,kruize,database}
+#   valkey                   → .Values.valkey.resources
+#   cost-management          → .Values.costManagement.<component>.resources
+
+costManagement:
+  api:
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 1
+        memory: 2Gi
+
+  masu:
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 2Gi
+
+  listener:
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 300m
+        memory: 600Mi
+
+  celery:
+    beat:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 64Mi
+        limits:
+          cpu: 100m
+          memory: 400Mi
+
+    workers:
+      default:
+        resources:
+          requests:
+            cpu: 25m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 400Mi
+      priority:
+        resources:
+          requests:
+            cpu: 25m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 2Gi
+      ocp:
+        resources:
+          requests:
+            cpu: 25m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 512Mi
+      summary:
+        resources:
+          requests:
+            cpu: 25m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 2Gi
+      download:
+        resources:
+          requests:
+            cpu: 25m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 512Mi
+      hcs:
+        resources:
+          requests:
+            cpu: 25m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 500Mi
+      refreshWorker:
+        resources:
+          requests:
+            cpu: 25m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 512Mi
+      subsExtraction:
+        resources:
+          requests:
+            cpu: 25m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 500Mi
+      subsTransmission:
+        resources:
+          requests:
+            cpu: 25m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 500Mi
+
+valkey:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Top-level resources section — used by ingress, kruize, and database templates
+resources:
+  application:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  kruize:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi  # JVM needs headroom; 512Mi causes liveness probe failure at t+80s
+  database:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi

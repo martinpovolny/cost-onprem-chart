@@ -1,3 +1,4 @@
+{{- if .Values.ros.enabled }}
 ---
 # NetworkPolicy to secure metrics endpoints for ROS API
 # Allows access only from OpenShift monitoring namespace (Prometheus)
@@ -198,3 +199,4 @@ spec:
       ports:
         - protocol: TCP
           port: {{ include "cost-onprem.koku.api.port" . }}  # Cost Management API container port
+{{- end }}

@@ -1,0 +1,249 @@
+# Deploy cost-onprem Helm chart to CRC (local OpenShift)
+# Reproducible step-by-step plan
+# Started: 2026-05-12
+
+================================================================================
+SUMMARY (as of 2026-05-14)
+================================================================================
+All deployment steps (0–6) are complete on Apple Silicon (arm64) CRC.
+Three test runs have been executed. The deployment is working but tests reveal
+several categories of failure requiring follow-up.
+
+WHAT WORKS:
+  - Full stack deploys cleanly via `make crc-deploy` (Kafka, Keycloak, S4, Helm chart)
+  - `make crc-test` (--no-ros --no-ui) runs ~144 tests in ~17 min, most passing
+  - Ingress upload path, auth token flow, database, Valkey, celery workers all healthy
+  - Automation is portable: arch auto-detected, amd64 needs no arm64 overrides
+
+WHAT NEEDS FIXING:
+  1. Keycloak restart loop (35+ restarts) — Vert.x event loop blocks under CPU
+     contention on arm64/QEMU; liveness probe kills it. Cluster stabilises eventually
+     but it degrades test reliability throughout the session.
+  2. Gateway 503s — Envoy fails to reach koku-api under test load (TCP connect
+     timeout × 2 retries = ~15s). Root cause not yet confirmed; koku-api responds
+     fine when tested outside of concurrent test runs.
+  3. test_all_critical_pods_running — hardcodes ros-api as critical; fails whenever
+     ros.enabled=false. Easy fix: gate on the ros.enabled value.
+  4. test_listener_kafka_connectivity — persistent Kafka broker disconnect in listener
+     logs. Possibly Kafka restarting under memory pressure.
+  5. test_cost_validation suite — errors because no cost data has been ingested.
+     Needs an e2e upload run first.
+
+KNOWN ARM64 LIMITATIONS (by design, not bugs):
+  - ros-ocp-backend is amd64-only; ROS suite always skipped (--no-ros)
+  - Default koku image is amd64-only; arm64 uses quay.io/martin_povolny/koku:latest
+  - RHBK has no arm64 images; Keycloak uses community operator instead
+  - Ingress image tag in values-crc-arm64.yaml expires 2026-05-18 — refresh needed
+
+NEXT STEPS (priority order):
+  1. Refresh ingress image tag before 2026-05-18 (see Step 5 notes for curl command)
+  2. Fix test_all_critical_pods_running to respect ros.enabled
+  3. Investigate Keycloak restart loop — consider tuning liveness probe or adding CPU
+  4. Investigate gateway 503 root cause under concurrent test load
+  5. Run e2e data ingestion flow (nise + upload) to enable cost validation tests
+
+================================================================================
+STEP 0 — Set up and start CRC
+================================================================================
+Status: DONE (recreated with larger disk — see note)
+
+  crc config set enable-cluster-monitoring true
+  crc config set memory 18000
+  crc config set disk-size 100
+  crc config set cpus 8
+  crc setup
+  crc start -p ~/.crc-secret.json
+
+Notes:
+  - CRC 2.60.1, OpenShift 4.21.8, vfkit (Apple Virtualization)
+  - 8 CPUs, 18GB RAM, 100GB disk assigned to VM (4 CPUs proved insufficient — stack needs ~4400m+ requests)
+  - DNS resolution for *.crc.testing works via /etc/hosts records (set by crc setup/start).
+    /etc/resolver/testing is not required.
+  - crc ip returns 127.0.0.1 — expected in vsock network mode
+  - Initial attempt used default 31GB disk — ran out of ephemeral storage pulling images.
+    Keycloak operator pod evicted at ~4.47GB free (eviction threshold: 4.57GB).
+    Recreated with 100GB disk to provide sufficient headroom.
+  - Credentials: kubeadmin / RvEjd-fwDVH-Zvwzz-IIT6E  (recreated 2026-05-13; was ZhHEX-nM64k-LFWvp-BiphG)
+  - API: https://api.crc.testing:6443
+  - Console: https://console-openshift-console.apps-crc.testing
+
+================================================================================
+STEP 1 — Log in and create namespace
+================================================================================
+Status: DONE
+
+  eval $(crc oc-env)
+  oc login -u kubeadmin -p ZhHEX-nM64k-LFWvp-BiphG https://api.crc.testing:6443
+  oc new-project cost-onprem
+
+================================================================================
+STEP 2 — Deploy Kafka (AMQ Streams)
+================================================================================
+Status: DONE
+
+  KAFKA_BROKER_STORAGE=500Mi KAFKA_CONTROLLER_STORAGE=500Mi ./scripts/deploy-kafka.sh
+
+Notes:
+  - Default 100Gi/20Gi PVC sizes cause provisioning failure on CRC (only ~5.7GB free).
+    Use 500Mi for both — hostpath is thin-provisioned so actual disk use is minimal.
+  - Operator image uses SHA digest reference, not a tag, causing version check regex to
+    fail. Fixed scripts/deploy-kafka.sh to fall back to CSV name check (amqstreams.v3.1.x).
+  - Bootstrap servers exported to /tmp/kafka-bootstrap-servers.env
+
+================================================================================
+STEP 3 — Deploy Keycloak (RHBK)
+================================================================================
+Status: DONE
+
+  KEYCLOAK_OPERATOR=community ./scripts/deploy-rhbk.sh
+
+Notes:
+  - RHBK (registry.redhat.io/rhbk) has no arm64 images — fails with ImagePullBackOff on Apple Silicon.
+  - Added KEYCLOAK_OPERATOR env var to deploy-rhbk.sh: "rhbk" (default) or "community".
+  - Community operator uses community-operators / keycloak-operator / fast channel.
+    It exposes the same k8s.keycloak.org/v2alpha1 API so the rest of the script is compatible.
+  - Fixed nested double-quote syntax error in help text introduced during the edit.
+  - Community operator v26 requires full https:// URLs for BOTH hostname and admin fields
+    in the Keycloak CR; RHBK v22 accepted bare hostnames. Fixed deploy-rhbk.sh to prefix
+    https:// for both when KEYCLOAK_OPERATOR=community.
+  - Validation function hard-coded "rhbk-operator" deployment name; fixed to use
+    "keycloak-operator" when KEYCLOAK_OPERATOR=community.
+
+================================================================================
+STEP 4 — Deploy S4 (S3-compatible object storage for dev/test)
+================================================================================
+Status: DONE
+
+  # helm is required — install if missing
+  brew install helm
+
+  ./scripts/deploy-s4-test.sh cost-onprem
+
+Notes:
+  - helm was not installed; added brew install helm as prerequisite.
+
+================================================================================
+STEP 5 — Deploy the Helm chart
+================================================================================
+Status: DONE
+
+  # Preferred: use the Makefile (auto-detects arch, selects correct values files)
+  make crc-deploy
+
+  # Or directly (arch auto-detected inside the script):
+  ./scripts/deploy-to-crc.sh
+
+  # Or with explicit env overrides:
+  ARCH=arm64 KEYCLOAK_OPERATOR=community ./scripts/deploy-to-crc.sh
+
+Notes:
+  - Values files: values-crc.yaml (arch-agnostic resource overrides, both arm64+amd64)
+    + values-crc-arm64.yaml (arm64-only: ros.enabled=false, koku image, ingress tag).
+    deploy-to-crc.sh auto-detects arch and layers both files on arm64, just the base on amd64.
+  - Default chart image (quay.io/redhat-services-prod/cost-mgmt-dev-tenant/koku:...)
+    is x86_64-only. On arm64 CRC it runs under QEMU and segfaults during Django startup.
+    Built koku_base:latest locally via `make docker-build` in the koku repo, tagged and
+    pushed as quay.io/martin_povolny/koku:latest (2.12GB, native arm64).
+  - All koku components reference .Values.costManagement.api.image via the
+    cost-onprem.koku.image helper in _helpers-koku.tpl — a single image override suffices.
+  - install-helm-chart.sh -f path must be absolute (script does `cd "$SCRIPT_DIR"` internally).
+  - ros-ocp-backend is amd64-only; crashes under QEMU. ros.enabled=false in values-crc-arm64.yaml
+    disables all 11 ROS templates. On amd64, ros.enabled=true (chart default).
+  - Memory: node has 18GB but Keycloak+Kafka+system pods consume ~15GB of requests.
+    All cost-onprem requests set to 64Mi in values-crc.yaml (limits unchanged).
+    Template paths: ingress→.Values.resources.application, kruize→.Values.resources.kruize,
+    database→.Values.resources.database (NOT .Values.{ingress,kruize,database}.resources)
+  - Ingress image tag in values-crc-arm64.yaml expires 2026-05-18. Refresh:
+      curl -s "https://quay.io/api/v1/repository/redhat-user-workloads/hcc-integrations-tenant/ingress/tag/?limit=5&onlyActiveTags=true"
+  - Kruize (Java/JVM) needs ≥2Gi memory LIMIT (request stays at 64Mi). 512Mi causes OOM.
+  - install-helm-chart.sh reports "[ERROR] ROS API pod not found" — expected on arm64.
+
+================================================================================
+STEP 6 — Verify deployment
+================================================================================
+Status: DONE
+
+  kubectl get pods -n cost-onprem -l app.kubernetes.io/instance=cost-onprem
+  # All pods Running or Completed (ROS pods absent — ros.enabled=false)
+
+================================================================================
+STEP 7 — Run tests
+================================================================================
+Status: DONE (three runs completed 2026-05-13/14)
+
+  # Preferred — skips ROS (disabled on arm64) and UI (no display in CI)
+  make crc-test
+  # Equivalent to:
+  NAMESPACE=cost-onprem ./scripts/run-pytest.sh --no-ros --no-ui
+
+  # With UI tests:
+  make crc-test-ui
+
+Run summary (all three runs used --no-ros --no-ui except Run 1):
+  Run 1 (2026-05-13, no --no-ros): 135 passed, 15 failed, 78 skipped, 39 errors  (~9 min)
+  Run 2 (2026-05-13, --no-ros --no-ui): 117 passed, 24 failed, 13 skipped, 42 errors (~20 min)
+  Run 3 (2026-05-14, --no-ros --no-ui): 144 passed, 29 failed, 11 skipped, 12 errors (~17 min)
+
+Multi-run failure analysis (pattern vs. transient):
+
+  ALWAYS FAIL (structural — need code/config fix):
+  - test_ros_* (ros suite):         ros.enabled=false → pods absent. Fixed by --no-ros flag.
+  - test_all_critical_pods_running: hardcodes ros-api as critical pod; should check ros.enabled.
+  - test_listener_kafka_connectivity: Kafka broker disconnect in listener logs — persists all 3 runs.
+  - test_backend_api_accessible:    gateway 503 "upstream connect error or disconnect/reset"
+  - test_gateway_accepts_authenticated_requests: gateway 503 (JWT JWKS fetch timing out?)
+  - test_sources_external_*:        gateway 503 on sources API routes
+
+  GETTING WORSE (escalating, not transient):
+  - api/* tests: Run 1 passed, Run 2 ERROR, Run 3 FAIL — gateway 503 increasing over time.
+    Likely Envoy upstream pool exhaustion or JWKS cache invalidation loop.
+
+  TRANSIENT (improving as cluster stabilises):
+  - test_keycloak_accessible:    failed Run 1-2, passed Run 3
+  - test_ui_pod_ready:           failed Run 1-2, passed Run 3
+  - test_kruize_pod_ready:       failed Run 1-2, passed Run 3
+  - test_listener_pod_ready:     failed Run 1, passed Run 2-3
+
+  DATA-DEPENDENT (require ingestion pipeline run first):
+  - test_cost_validation suite:  always errors — no cost data ingested yet
+
+Pending investigations:
+  1. Gateway 503 root cause: check Envoy/ingress pod logs during test run; look for
+     JWKS fetch failures at /realms/kubernetes/protocol/openid-connect/certs.
+     Possible fix: increase Envoy OIDC cache TTL or pre-warm JWKS before tests.
+  2. test_listener_kafka_connectivity: check listener logs for broker disconnect patterns.
+     May be Kafka controller restarting under memory pressure.
+  3. test_all_critical_pods_running: fix to skip ros-api check when ros.enabled=false.
+  4. Run e2e upload flow to populate cost data, then re-run test_cost_validation suite.
+
+================================================================================
+AUTOMATION — Makefile + scripts
+================================================================================
+  make crc-deploy          # deploy all infra + chart (arch auto-detected)
+  make crc-test            # run tests, skip ROS + UI
+  make crc-test-ui         # run tests including UI
+  make crc-all             # deploy + test in one shot
+  make crc-redeploy        # reinstall chart only (keep kafka/keycloak/s4)
+  make crc-info            # show pod/route/helm state
+  make crc-logs COMPONENT=listener  # tail logs for a component
+
+  Key files:
+    scripts/deploy-to-crc.sh          orchestrates all deployment steps
+    cost-onprem/values-crc.yaml       resource overrides for all CRC (arm64+amd64)
+    cost-onprem/values-crc-arm64.yaml arm64-specific overrides (ros off, koku image)
+
+  amd64 differences (no overrides needed beyond values-crc.yaml):
+    - KEYCLOAK_OPERATOR defaults to rhbk (has amd64 images)
+    - koku image uses chart default (amd64-native)
+    - ros.enabled=true (ros-ocp-backend has amd64 image)
+    - values-crc-arm64.yaml NOT applied
+
+================================================================================
+NOTES
+================================================================================
+- Resource constraints: CRC has 8 CPUs / 18GB RAM (recreated from 4 CPUs on 2026-05-13)
+- Disk: 100GB volume (recreated from 31GB after running out of ephemeral storage)
+- S4 is used instead of real S3 (dev/test only)
+- ROS disabled on arm64 (ros.enabled=false) — no native arm64 image for ros-ocp-backend
+- See docs/development/ocp-dev-setup-s4.md for full background
+- See docs/project-log.md for a dated session log
