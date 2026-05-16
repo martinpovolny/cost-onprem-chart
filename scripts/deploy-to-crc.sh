@@ -149,11 +149,21 @@ step4_s4() {
     "$SCRIPT_DIR/deploy-s4-test.sh" "$NAMESPACE"
     success "S4 ready"
 
-    # Read S4 credentials (secret uses access-key / secret-key, not AWS_* names)
+    # Read S4 credentials — current format uses access-key/secret-key keys;
+    # fall back to AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY for older secrets.
     S4_ACCESS_KEY=$(kubectl get secret s4-credentials -n "$NAMESPACE" \
         -o jsonpath='{.data.access-key}' | base64 -d)
+    if [ -z "$S4_ACCESS_KEY" ]; then
+        S4_ACCESS_KEY=$(kubectl get secret s4-credentials -n "$NAMESPACE" \
+            -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 -d)
+    fi
     S4_SECRET_KEY=$(kubectl get secret s4-credentials -n "$NAMESPACE" \
         -o jsonpath='{.data.secret-key}' | base64 -d)
+    if [ -z "$S4_SECRET_KEY" ]; then
+        S4_SECRET_KEY=$(kubectl get secret s4-credentials -n "$NAMESPACE" \
+            -o jsonpath='{.data.AWS_SECRET_ACCESS_KEY}' | base64 -d)
+    fi
+    [ -z "$S4_ACCESS_KEY" ] && { error "Could not read S4 access key from s4-credentials secret"; exit 1; }
 }
 
 # ---------------------------------------------------------------------------

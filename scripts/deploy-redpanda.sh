@@ -62,19 +62,18 @@ helm repo update redpanda
 kubectl get namespace "$KAFKA_NAMESPACE" &>/dev/null || kubectl create namespace "$KAFKA_NAMESPACE"
 
 # On OpenShift, Redpanda's tuning init container requires privileged SCC
-# (needs runAsUser=0, SYS_RESOURCE capability). Pre-create the service account
-# so we can grant the SCC before the StatefulSet pod is scheduled.
+# (needs runAsUser=0, SYS_RESOURCE capability).
+# Strategy: install with replicas=0 so Helm creates the SA without scheduling any
+# pod, grant the SCC, then scale to replicas=1 and wait for the pod.
+OPENSHIFT=false
 if kubectl api-resources 2>/dev/null | grep -q securitycontextconstraints; then
-    info "OpenShift detected — granting privileged SCC to Redpanda service account..."
-    # Pre-create the service account so the SCC grant succeeds before helm install
-    # tries to schedule the pod. The SA name matches the Redpanda chart default.
-    kubectl create serviceaccount redpanda -n "$KAFKA_NAMESPACE" \
-        --dry-run=client -o yaml | kubectl apply -f - 2>/dev/null
-    # Redpanda's tuning init container requires privileged + SYS_RESOURCE (for kernel
-    # tuning). Without this grant the pod is rejected by OpenShift SCCs.
-    oc adm policy add-scc-to-user privileged \
-        "system:serviceaccount:${KAFKA_NAMESPACE}:redpanda" \
-        2>&1 | grep -v "already has" || true
+    OPENSHIFT=true
+    info "OpenShift detected — will grant privileged SCC after SA creation"
+    # Require oc — without it the SCC grant is silently skipped and pods never start.
+    if ! command -v oc &>/dev/null; then
+        error "oc CLI not found in PATH ($PATH). Cannot grant SCC on OpenShift."
+        exit 1
+    fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -91,22 +90,50 @@ if [ "$REDPANDA_DEV_MODE" = "true" ]; then
     DEV_MODE_FLAGS=(--set "config.node.developer_mode=true")
 fi
 
-helm upgrade --install redpanda redpanda/redpanda \
-    "${VERSION_FLAG[@]}" \
-    --namespace "$KAFKA_NAMESPACE" \
-    --wait \
-    --timeout 5m \
-    --set statefulset.replicas=1 \
-    --set-string "resources.cpu.cores=1" \
-    --set "resources.memory.container.max=${MEMORY_MAX}" \
-    --set "storage.persistentVolume.size=${STORAGE_SIZE}" \
-    --set tls.enabled=false \
-    --set "listeners.kafka.port=9092" \
-    --set "listeners.kafka.authenticationMethod=none" \
-    --set "config.cluster.auto_create_topics_enabled=true" \
-    --set console.enabled=false \
-    --set monitoring.enabled=false \
-    "${DEV_MODE_FLAGS[@]}"
+HELM_COMMON_FLAGS=(
+    "${VERSION_FLAG[@]+"${VERSION_FLAG[@]}"}"
+    --namespace "$KAFKA_NAMESPACE"
+    --set-string "resources.cpu.cores=1"
+    --set "resources.memory.container.max=${MEMORY_MAX}"
+    --set "storage.persistentVolume.size=${STORAGE_SIZE}"
+    --set tls.enabled=false
+    --set "listeners.kafka.port=9092"
+    --set "listeners.kafka.authenticationMethod=none"
+    --set "config.cluster.auto_create_topics_enabled=true"
+    --set console.enabled=false
+    --set monitoring.enabled=false
+    "${DEV_MODE_FLAGS[@]+"${DEV_MODE_FLAGS[@]}"}"
+)
+
+if [ "$OPENSHIFT" = "true" ]; then
+    # Phase 1: create resources (including the SA) without scheduling any pods.
+    info "Phase 1: creating Helm resources (replicas=0) so SA exists for SCC grant..."
+    helm upgrade --install redpanda redpanda/redpanda \
+        "${HELM_COMMON_FLAGS[@]}" \
+        --set statefulset.replicas=0 \
+        --wait --timeout 5m
+
+    # Phase 2: grant privileged SCC to the Helm-owned SA.
+    if ! oc adm policy add-scc-to-user privileged \
+            "system:serviceaccount:${KAFKA_NAMESPACE}:redpanda" 2>&1 \
+            | grep -qE "added|already has"; then
+        error "Failed to grant privileged SCC to redpanda service account"
+        exit 1
+    fi
+    info "Privileged SCC granted to system:serviceaccount:${KAFKA_NAMESPACE}:redpanda"
+
+    # Phase 3: scale to 1 replica and wait for the pod.
+    info "Phase 3: scaling Redpanda to 1 replica..."
+    helm upgrade redpanda redpanda/redpanda \
+        "${HELM_COMMON_FLAGS[@]}" \
+        --set statefulset.replicas=1 \
+        --wait --timeout 10m
+else
+    helm upgrade --install redpanda redpanda/redpanda \
+        "${HELM_COMMON_FLAGS[@]}" \
+        --set statefulset.replicas=1 \
+        --wait --timeout 10m
+fi
 
 success "Redpanda deployed"
 info "Bootstrap server: redpanda.${KAFKA_NAMESPACE}.svc.cluster.local:9092"

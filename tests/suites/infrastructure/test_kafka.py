@@ -62,32 +62,42 @@ def get_kafka_broker_pod(kafka_namespace: str) -> Optional[str]:
 
 
 def get_kafka_pods_status(kafka_namespace: str) -> dict:
-    """Get status of all Kafka pods.
-    
+    """Get status of all Kafka pods (AMQ Streams or Redpanda).
+
     Args:
         kafka_namespace: Namespace where Kafka is deployed
-        
+
     Returns:
         Dict with pod counts and status details
     """
+    # Try AMQ Streams first, then Redpanda
+    label_selectors = [
+        "strimzi.io/kind=Kafka",           # AMQ Streams broker pods
+        "app.kubernetes.io/name=redpanda",  # Redpanda pods
+    ]
+    items = []
     try:
-        result = subprocess.run(
-            [
-                "kubectl", "get", "pods",
-                "-n", kafka_namespace,
-                "-l", "strimzi.io/kind=Kafka",
-                "-o", "json",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        
-        if result.returncode != 0:
-            return {"error": result.stderr, "total": 0, "running": 0}
-        
-        pods_data = json.loads(result.stdout)
-        items = pods_data.get("items", [])
+        for label in label_selectors:
+            result = subprocess.run(
+                [
+                    "kubectl", "get", "pods",
+                    "-n", kafka_namespace,
+                    "-l", label,
+                    "-o", "json",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode == 0:
+                pods_data = json.loads(result.stdout)
+                found = pods_data.get("items", [])
+                if found:
+                    items = found
+                    break
+
+        if not items:
+            return {"error": "No Kafka/Redpanda pods found", "total": 0, "running": 0}
         
         running = sum(
             1 for pod in items
@@ -222,7 +232,7 @@ class TestKafkaCluster:
         
         assert status["total"] > 0, (
             f"No Kafka pods found in namespace '{kafka_ns}'. "
-            "Ensure AMQ Streams Kafka is deployed."
+            "Ensure AMQ Streams Kafka or Redpanda is deployed."
         )
     
     def test_kafka_cluster_pods_running(self):
