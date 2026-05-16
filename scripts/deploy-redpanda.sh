@@ -106,45 +106,39 @@ helm upgrade --install redpanda redpanda/redpanda \
     --set "config.cluster.auto_create_topics_enabled=true" \
     --set console.enabled=false \
     --set monitoring.enabled=false \
-    "${DEV_MODE_FLAGS[@]}" \
-    --values - <<'REDPANDA_VALUES'
-provisioning:
-  enabled: true
-  topics:
-    - name: platform.upload.announce
-      partitions: 1
-      replicationFactor: 1
-    - name: platform.upload.validation
-      partitions: 1
-      replicationFactor: 1
-    - name: platform.notifications.ingress
-      partitions: 1
-      replicationFactor: 1
-    - name: hccm.ros.events
-      partitions: 1
-      replicationFactor: 1
-    - name: platform.rhsm-subscriptions.service-instance-ingress
-      partitions: 1
-      replicationFactor: 1
-    - name: platform.sources.event-stream
-      partitions: 1
-      replicationFactor: 1
-REDPANDA_VALUES
+    "${DEV_MODE_FLAGS[@]}"
 
 success "Redpanda deployed"
 info "Bootstrap server: redpanda.${KAFKA_NAMESPACE}.svc.cluster.local:9092"
 
 # ---------------------------------------------------------------------------
-# Verify
+# Verify + create topics
 # ---------------------------------------------------------------------------
 info "Waiting for Redpanda to be ready..."
 kubectl rollout status statefulset/redpanda -n "$KAFKA_NAMESPACE" --timeout=120s
 
 info ""
 info "Cluster info:"
-kubectl exec -n "$KAFKA_NAMESPACE" redpanda-0 -- rpk cluster info 2>/dev/null || true
+kubectl exec -n "$KAFKA_NAMESPACE" redpanda-0 -c redpanda -- rpk cluster info 2>/dev/null || true
 
-info "Topics after provisioning:"
+# Create required topics (idempotent — rpk ignores already-existing topics)
+TOPICS=(
+    platform.upload.announce
+    platform.upload.validation
+    platform.notifications.ingress
+    hccm.ros.events
+    platform.rhsm-subscriptions.service-instance-ingress
+    platform.sources.event-stream
+)
+info "Creating Kafka topics..."
+for topic in "${TOPICS[@]}"; do
+    kubectl exec -n "$KAFKA_NAMESPACE" redpanda-0 -c redpanda -- \
+        rpk topic create "$topic" --partitions 1 --replicas 1 2>/dev/null \
+        && info "  created: $topic" \
+        || info "  exists:  $topic"
+done
+
+info "Topics:"
 kubectl exec -n "$KAFKA_NAMESPACE" redpanda-0 -c redpanda -- rpk topic list 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
