@@ -41,6 +41,10 @@ else
   KEYCLOAK_OPERATOR ?= rhbk
 endif
 
+# Kafka backend: redpanda (default, lighter) or amqstreams (OLM operator, production-grade)
+#   make crc-deploy KAFKA_BACKEND=amqstreams
+KAFKA_BACKEND ?= redpanda
+
 # ---------------------------------------------------------------------------
 # Targets
 # ---------------------------------------------------------------------------
@@ -51,8 +55,9 @@ crc-all: crc-deploy crc-test
 
 ## Deploy all components (kafka, keycloak, s4, helm chart)
 crc-deploy:
-	@echo "==> Deploying cost-onprem to CRC (arch=$(ARCH), keycloak=$(KEYCLOAK_OPERATOR))"
+	@echo "==> Deploying cost-onprem to CRC (arch=$(ARCH), keycloak=$(KEYCLOAK_OPERATOR), kafka=$(KAFKA_BACKEND))"
 	ARCH=$(ARCH) KEYCLOAK_OPERATOR=$(KEYCLOAK_OPERATOR) NAMESPACE=$(NAMESPACE) \
+	    KAFKA_BACKEND=$(KAFKA_BACKEND) \
 	    ./scripts/deploy-to-crc.sh
 
 ## Reinstall only the Helm chart (skip kafka/keycloak/s4)

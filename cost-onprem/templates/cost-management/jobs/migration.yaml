@@ -41,23 +41,39 @@ spec:
             echo "Namespace: {{ .Release.Namespace }}"
             echo "ONPREM=${ONPREM:-not set}"
 
-            # Wait for database to be ready
-            DB_HOST="{{ include "cost-onprem.database.host" . }}"
-            DB_PORT="{{ .Values.database.server.port }}"
-            MAX_WAIT=600  # 10 minutes timeout
-            ELAPSED=0
-            
-            echo "Waiting for database at ${DB_HOST}:${DB_PORT}..."
-            while ! timeout 5 bash -c "cat < /dev/null > /dev/tcp/${DB_HOST}/${DB_PORT}" 2>/dev/null; do
-              if [ $ELAPSED -ge $MAX_WAIT ]; then
-                echo "ERROR: Database not ready after ${MAX_WAIT} seconds"
-                exit 1
-              fi
-              echo "Database not ready (${ELAPSED}s elapsed), waiting..."
-              sleep 5
-              ELAPSED=$((ELAPSED + 5))
-            done
-            echo "✓ Database is ready (waited ${ELAPSED}s)"
+            # Wait for database using psycopg2 — handles TCP-open-but-shutting-down
+            # race that occurs because the DB StatefulSet is a pre-upgrade hook
+            # (weight -10) that restarts the pod just before this job (weight 0) runs.
+            python3 - <<'WAIT_EOF'
+            import os, sys, time
+            import psycopg2
+
+            host     = "{{ include "cost-onprem.database.host" . }}"
+            port     = {{ .Values.database.server.port }}
+            dbname   = os.environ["DATABASE_NAME"]
+            user     = os.environ["DATABASE_USER"]
+            password = os.environ["DATABASE_PASSWORD"]
+
+            max_wait = 600
+            elapsed  = 0
+            while elapsed < max_wait:
+                try:
+                    conn = psycopg2.connect(
+                        host=host, port=port, dbname=dbname,
+                        user=user, password=password, connect_timeout=5,
+                    )
+                    conn.close()
+                    print(f"Database is ready (waited {elapsed}s)", flush=True)
+                    sys.exit(0)
+                except psycopg2.OperationalError as e:
+                    if elapsed % 15 == 0:
+                        print(f"Waiting for database ({elapsed}s): {str(e).strip()}", flush=True)
+                    time.sleep(5)
+                    elapsed += 5
+
+            print(f"ERROR: Database not ready after {max_wait}s")
+            sys.exit(1)
+            WAIT_EOF
 
             # Set up environment
             mkdir -p /tmp/prometheus

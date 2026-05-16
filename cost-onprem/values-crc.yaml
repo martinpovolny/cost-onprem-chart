@@ -13,6 +13,13 @@
 #   valkey                   → .Values.valkey.resources
 #   cost-management          → .Values.costManagement.<component>.resources
 
+# Redpanda bootstrap server (used when KAFKA_BACKEND=redpanda, which is the default
+# for CRC). Redpanda deploys into the 'kafka' namespace with release name 'redpanda',
+# giving it the service DNS name below. Switch to amqstreams bootstrap if needed:
+#   kafka.bootstrapServers: cost-onprem-kafka-kafka-bootstrap.kafka.svc.cluster.local:9092
+kafka:
+  bootstrapServers: redpanda.kafka.svc.cluster.local:9092
+
 costManagement:
   api:
     resources:

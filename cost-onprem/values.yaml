@@ -503,7 +503,7 @@ kruize:
 ingress:
   image:
     repository: quay.io/redhat-user-workloads/hcc-integrations-tenant/ingress
-    tag: "3a7a2cf"
+    tag: "1e2e9dc"
     pullPolicy: Always
 
   # Server configuration

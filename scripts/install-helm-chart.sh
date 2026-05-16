@@ -62,7 +62,8 @@ LOG_LEVEL=${LOG_LEVEL:-WARN}
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HELM_RELEASE_NAME=${HELM_RELEASE_NAME:-cost-onprem}
 NAMESPACE=${NAMESPACE:-cost-onprem}
-VALUES_FILE=${VALUES_FILE:-}
+VALUES_FILES=()  # All -f/--values files in order; last file wins on key conflicts
+VALUES_FILE=${VALUES_FILE:-}  # Env-var bootstrap (single file); overridden by -f args below
 HELM_REPO_NAME="cost-onprem"
 HELM_REPO_URL="https://insights-onprem.github.io/cost-onprem-chart"
 CHART_VERSION=${CHART_VERSION:-}  # Empty = latest; set to pin a version (e.g., "0.2.9")
@@ -145,15 +146,9 @@ find_explicit_s3_region() {
         echo "$S3_REGION"
         return 0
     fi
-    local vf v
-    vf="${VALUES_FILE:-}"
-    if [ -n "$vf" ] && [ -f "$vf" ] && command_exists yq; then
-        v=$(yq '.objectStorage.s3.region // ""' "$vf" 2>/dev/null)
-        if [ -n "$v" ] && [ "$v" != "null" ] && [ "$v" != "onprem" ]; then
-            echo "$v"
-            return 0
-        fi
-    fi
+    local v
+    v=$(get_helm_value "objectStorage.s3.region" "")
+    [ -n "$v" ] && [ "$v" != "null" ] && [ "$v" != "onprem" ] && { echo "$v"; return 0; }
     local chart_dir="${CHART_DIR:-${SCRIPT_DIR}/../cost-onprem}"
     local base_values="${chart_dir}/values.yaml"
     if [ -f "$base_values" ] && command_exists yq; then
@@ -171,30 +166,23 @@ resolve_s3_cli_region() {
     echo "us-east-1"
 }
 
-# Bucket name for the S3 setup job: VALUES_FILE may be a partial overlay without
-# ingress/costManagement.storage keys; yq then returns YAML null (string "null").
-# Order: user values → chart values.yaml → hard-coded default (matches chart defaults).
+# Bucket name for the S3 setup job.
+# Order: user values (merged via yq ea) → chart values.yaml → hard-coded default.
 resolve_install_bucket_name() {
-    local yq_path="$1"
-    local hard_default="$2"
-    local chart_dir="${CHART_DIR:-${SCRIPT_DIR}/../cost-onprem}"
-    local chart_values="${chart_dir}/values.yaml"
-    local user_f="${VALUES_FILE:-}"
+    local yq_path="$1" hard_default="$2"
+    local chart_values="${CHART_DIR:-${SCRIPT_DIR}/../cost-onprem}/values.yaml"
     local v=""
-    local f
 
-    for f in "$user_f" "$chart_values"; do
-        [ -z "$f" ] || [ ! -f "$f" ] && continue
-        command_exists yq || continue
-        v=$(yq "$yq_path" "$f" 2>/dev/null || true)
-        v="${v//$'\r'/}"
-        v="${v#\"}"
-        v="${v%\"}"
-        if [ -n "$v" ] && [ "$v" != "null" ] && [ "$v" != "~" ]; then
-            echo "$v"
-            return 0
-        fi
-    done
+    v=$(get_helm_value "${yq_path#.}" "")
+    v="${v//$'\r'/}"; v="${v#\"}"; v="${v%\"}"
+    [ -n "$v" ] && [ "$v" != "null" ] && [ "$v" != "~" ] && { echo "$v"; return 0; }
+
+    # Fall back to chart values.yaml
+    if [ -f "$chart_values" ]; then
+        v=$(yq "$yq_path" "$chart_values" 2>/dev/null || true)
+        v="${v//$'\r'/}"; v="${v#\"}"; v="${v%\"}"
+        [ -n "$v" ] && [ "$v" != "null" ] && [ "$v" != "~" ] && { echo "$v"; return 0; }
+    fi
     echo "$hard_default"
 }
 
@@ -264,19 +252,15 @@ compute_and_export_install_bucket_names() {
     export RESOLVED_S3_BUCKET_ROS="$ros_bucket"
 }
 
-# Read a value from the user-supplied Helm values file using yq
-# Usage: get_helm_value "database.deploy" "true"
-# Returns the value from VALUES_FILE if set, otherwise returns the default
+# Read a value from user-supplied Helm values files.
+# Uses `yq ea` to deep-merge all VALUES_FILES (last file wins, matching Helm semantics).
+# Usage: get_helm_value "kafka.bootstrapServers" ""
 get_helm_value() {
-    local key="$1"
-    local default="${2:-}"
-    if [ -n "$VALUES_FILE" ] && [ -f "$VALUES_FILE" ]; then
+    local key="$1" default="${2:-}"
+    if [ ${#VALUES_FILES[@]} -gt 0 ]; then
         local val
-        val=$(yq e ".$key" "$VALUES_FILE" 2>/dev/null)
-        if [ -n "$val" ] && [ "$val" != "null" ]; then
-            echo "$val"
-            return
-        fi
+        val=$(yq ea '. as $item ireduce ({}; . * $item) | .'"$key" "${VALUES_FILES[@]}" 2>/dev/null)
+        [ -n "$val" ] && [ "$val" != "null" ] && { echo "$val"; return; }
     fi
     echo "$default"
 }
@@ -304,6 +288,10 @@ check_prerequisites() {
         missing_tools+=("jq")
     fi
 
+    if ! command_exists yq; then
+        missing_tools+=("yq")
+    fi
+
     if [ ${#missing_tools[@]} -gt 0 ]; then
         echo_error "Missing required tools: ${missing_tools[*]}"
         echo_info "Please install the missing tools:"
@@ -326,6 +314,12 @@ check_prerequisites() {
                     echo_info "  Install jq: https://stedolan.github.io/jq/download/"
                     if [[ "$OSTYPE" == "darwin"* ]]; then
                         echo_info "  macOS: brew install jq"
+                    fi
+                    ;;
+                "yq")
+                    echo_info "  Install yq: https://github.com/mikefarah/yq#install"
+                    if [[ "$OSTYPE" == "darwin"* ]]; then
+                        echo_info "  macOS: brew install yq"
                     fi
                     ;;
             esac
@@ -363,9 +357,9 @@ detect_platform() {
         echo_success "Verified OpenShift platform"
         export PLATFORM="openshift"
         # Use OpenShift values if available and no custom values specified
-        if [ -z "$VALUES_FILE" ] && [ -f "$SCRIPT_DIR/../../../openshift-values.yaml" ]; then
+        if [ ${#VALUES_FILES[@]} -eq 0 ] && [ -z "$VALUES_FILE" ] && [ -f "$SCRIPT_DIR/../../../openshift-values.yaml" ]; then
             echo_info "Using OpenShift-specific values file"
-            VALUES_FILE="$SCRIPT_DIR/../../../openshift-values.yaml"
+            VALUES_FILES+=("$SCRIPT_DIR/../../../openshift-values.yaml")
         fi
     else
         echo_error "OpenShift platform not detected. This chart requires OpenShift."
@@ -839,20 +833,21 @@ create_s3_buckets() {
         no_verify_ssl="--no-verify-ssl"
         echo_info "  ✓ Detected: NooBaa S3 (via ODF)"
     else
-        # Read objectStorage from user values file first, then bundled chart values.yaml
+        # Read objectStorage from user values files (last wins), then chart values.yaml
         local chart_dir="${CHART_DIR:-${SCRIPT_DIR}/../cost-onprem}"
         local base_values="${chart_dir}/values.yaml"
         local s3_ep="" s3_port="443" s3_ssl="true"
-        local src_values=""
-        if [ -n "${VALUES_FILE:-}" ] && [ -f "$VALUES_FILE" ] && command_exists yq; then
-            src_values="$VALUES_FILE"
-        elif [ -f "$base_values" ]; then
-            src_values="$base_values"
-        fi
-        if [ -n "$src_values" ] && command_exists yq; then
-            s3_ep=$(yq '.objectStorage.endpoint // ""' "$src_values" 2>/dev/null)
-            s3_port=$(yq '.objectStorage.port // 443' "$src_values" 2>/dev/null)
-            s3_ssl=$(yq '.objectStorage.useSSL // true' "$src_values" 2>/dev/null)
+        s3_ep=$(get_helm_value "objectStorage.endpoint" "")
+        if [ -z "$s3_ep" ] || [ "$s3_ep" = "null" ]; then
+            # fall back to chart values.yaml
+            if [ -f "$base_values" ]; then
+                s3_ep=$(yq '.objectStorage.endpoint // ""' "$base_values" 2>/dev/null)
+                s3_port=$(yq '.objectStorage.port // 443' "$base_values" 2>/dev/null)
+                s3_ssl=$(yq '.objectStorage.useSSL // true' "$base_values" 2>/dev/null)
+            fi
+        else
+            s3_port=$(get_helm_value "objectStorage.port" "443")
+            s3_ssl=$(get_helm_value "objectStorage.useSSL" "true")
         fi
         if [ -n "$s3_ep" ] && [ "$s3_ep" != "null" ]; then
             endpoint_host=$(parse_s3_host "$s3_ep")
@@ -869,7 +864,7 @@ create_s3_buckets() {
                 s3_url="http://${s3_ep}:${s3_port}"
                 no_verify_ssl=""
             fi
-            echo_info "  ✓ Using S3 from values (${src_values##*/}): $s3_url"
+            echo_info "  ✓ Using S3 from values: $s3_url"
         else
             echo_error "Could not detect S3 storage backend"
             echo_error "Checked for: S3_ENDPOINT env var, NooBaa CRD, values objectStorage.endpoint"
@@ -1143,6 +1138,17 @@ deploy_helm_chart() {
         echo_info "Using Helm repository chart: $chart_source"
     fi
 
+    # Clean up any failed migration jobs so before-hook-creation can replace them.
+    # Helm skips the delete when the release itself is in failed state, leaving stale
+    # Failed jobs that block the next upgrade attempt.
+    for job in $(kubectl get jobs -n "$NAMESPACE" \
+                     -l "helm.sh/chart" \
+                     --field-selector=status.failed=1 \
+                     -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+        echo_info "Removing failed hook job: $job"
+        kubectl delete job "$job" -n "$NAMESPACE" --ignore-not-found >/dev/null
+    done
+
     # Build Helm command
     local helm_cmd="helm upgrade --install \"$HELM_RELEASE_NAME\" \"$chart_source\""
     helm_cmd="$helm_cmd --namespace \"$NAMESPACE\""
@@ -1156,16 +1162,16 @@ deploy_helm_chart() {
         echo_info "Pinning chart version: $CHART_VERSION"
     fi
 
-    # Add values file if specified
-    if [ -n "$VALUES_FILE" ]; then
-        if [ -f "$VALUES_FILE" ]; then
-            echo_info "Using values file: $VALUES_FILE"
-            helm_cmd="$helm_cmd -f \"$VALUES_FILE\""
+    # Add all values files (-f flags); last file wins on key conflicts
+    for vf in "${VALUES_FILES[@]+"${VALUES_FILES[@]}"}"; do
+        if [ -f "$vf" ]; then
+            echo_info "Using values file: $vf"
+            helm_cmd="$helm_cmd -f \"$vf\""
         else
-            echo_error "Values file not found: $VALUES_FILE"
+            echo_error "Values file not found: $vf"
             return 1
         fi
-    fi
+    done
 
     # -------------------------------------------------------------------------
     # Cluster-detected values (FLPATH-3181: chart no longer uses lookup())
@@ -1328,8 +1334,8 @@ show_status() {
     echo_info "Platform: $PLATFORM"
     echo_info "Namespace: $NAMESPACE"
     echo_info "Helm Release: $HELM_RELEASE_NAME"
-    if [ -n "$VALUES_FILE" ]; then
-        echo_info "Values File: $VALUES_FILE"
+    if [ ${#VALUES_FILES[@]} -gt 0 ]; then
+        echo_info "Values Files: ${VALUES_FILES[*]}"
     fi
     echo ""
 
@@ -1397,7 +1403,7 @@ run_health_checks() {
     # Test internal service connectivity first (this should always work)
     echo_info "Testing internal service connectivity..."
 
-    # Test ROS API internally
+    # Test ROS API internally (only if ROS is enabled — no ros-api pod means ros.enabled=false)
     local api_pod=$(kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/component=ros-api -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
     if [ -n "$api_pod" ]; then
         if kubectl exec -n "$NAMESPACE" "$api_pod" -- curl -f -s http://localhost:8000/status >/dev/null 2>&1; then
@@ -1406,9 +1412,10 @@ run_health_checks() {
             echo_error "✗ ROS API service is not responding (internal)"
             failed_checks=$((failed_checks + 1))
         fi
+    elif kubectl get deployment -n "$NAMESPACE" -l app.kubernetes.io/component=ros-api --ignore-not-found 2>/dev/null | grep -q ros-api; then
+        echo_warning "✗ ROS API pod not found (deployment exists but no pod running)"
     else
-        echo_error "✗ ROS API pod not found"
-        failed_checks=$((failed_checks + 1))
+        echo_info "  ↳ ROS API skipped (ros.enabled=false)"
     fi
 
     # Test services via port-forwarding
@@ -1979,18 +1986,16 @@ setup_jwt_authentication() {
 set_platform_config() {
     echo_info "Using OpenShift configuration"
 
-    # Use openshift-values.yaml if no custom values file is specified
-    if [ -z "$VALUES_FILE" ]; then
+    # Use openshift-values.yaml if no custom values files were specified
+    if [ ${#VALUES_FILES[@]} -eq 0 ] && [ -z "$VALUES_FILE" ]; then
         local openshift_values="$SCRIPT_DIR/../openshift-values.yaml"
         if [ -f "$openshift_values" ]; then
-            VALUES_FILE="$openshift_values"
+            VALUES_FILES+=("$openshift_values")
             echo_info "Using OpenShift values file: $openshift_values"
         else
             echo_warning "OpenShift values file not found: $openshift_values"
             echo_info "Using base values — cluster-specific overrides will be auto-detected"
         fi
-    else
-        echo_info "Using custom values file: $VALUES_FILE"
     fi
 }
 
@@ -2007,8 +2012,7 @@ main() {
                 shift 2
                 ;;
             --values|-f)
-                # Script argument - set values file
-                VALUES_FILE="$2"
+                VALUES_FILES+=("$2")
                 shift 2
                 ;;
             --set|--set-string|--set-file|--set-json)
@@ -2048,6 +2052,11 @@ main() {
     # Setup JWT authentication prerequisites (if applicable)
     setup_jwt_authentication
 
+    # Seed VALUES_FILES from the single-file env-var bootstrap if no -f args given
+    if [ ${#VALUES_FILES[@]} -eq 0 ] && [ -n "$VALUES_FILE" ]; then
+        VALUES_FILES+=("$VALUES_FILE")
+    fi
+
     # Set platform-specific configuration based on auto-detection
     if ! set_platform_config; then
         exit 1
@@ -2057,8 +2066,8 @@ main() {
     echo_info "  Platform: $PLATFORM"
     echo_info "  Helm Release: $HELM_RELEASE_NAME"
     echo_info "  Namespace: $NAMESPACE"
-    if [ -n "$VALUES_FILE" ]; then
-        echo_info "  Values File: $VALUES_FILE"
+    if [ ${#VALUES_FILES[@]} -gt 0 ]; then
+        echo_info "  Values Files: ${VALUES_FILES[*]}"
     fi
     if [ "$JWT_AUTH_ENABLED" = "true" ]; then
         echo_info "  JWT Authentication: Enabled"
@@ -2079,16 +2088,16 @@ main() {
     # creation, and bucket creation.
     export USER_S3_CONFIGURED="false"
     export USER_S3_SECRET_NAME=""
-    if [ -n "$VALUES_FILE" ] && [ -f "$VALUES_FILE" ] && command_exists yq; then
+    if [ ${#VALUES_FILES[@]} -gt 0 ]; then
         local user_endpoint
-        user_endpoint=$(yq '.objectStorage.endpoint // ""' "$VALUES_FILE" 2>/dev/null)
-        if [ -n "$user_endpoint" ]; then
+        user_endpoint=$(get_helm_value "objectStorage.endpoint" "")
+        if [ -n "$user_endpoint" ] && [ "$user_endpoint" != "null" ]; then
             USER_S3_CONFIGURED="true"
-            USER_S3_SECRET_NAME=$(yq '.objectStorage.secretName // ""' "$VALUES_FILE" 2>/dev/null)
+            USER_S3_SECRET_NAME=$(get_helm_value "objectStorage.secretName" "")
             echo_info "S3 storage pre-configured in values file:"
             echo_info "  Endpoint: $user_endpoint"
-            echo_info "  Port: $(yq '.objectStorage.port // 443' "$VALUES_FILE" 2>/dev/null)"
-            echo_info "  SSL: $(yq '.objectStorage.useSSL // true' "$VALUES_FILE" 2>/dev/null)"
+            echo_info "  Port: $(get_helm_value "objectStorage.port" "443")"
+            echo_info "  SSL: $(get_helm_value "objectStorage.useSSL" "true")"
             if [ -n "$USER_S3_SECRET_NAME" ]; then
                 echo_info "  Credentials Secret: $USER_S3_SECRET_NAME (user-managed)"
             else
@@ -2131,6 +2140,13 @@ main() {
     elif [ "$USING_EXTERNAL_OBC" = "true" ]; then
         skip_storage_credentials="true"
         skip_bucket_creation="true"
+    fi
+
+    # Buckets are persistent — skip the bucket job on upgrades of an existing release
+    if [ "$skip_bucket_creation" = "false" ] && \
+       helm status "$HELM_RELEASE_NAME" -n "$NAMESPACE" >/dev/null 2>&1; then
+        skip_bucket_creation="true"
+        echo_info "Skipping bucket creation (existing Helm release — buckets already provisioned)"
     fi
 
     echo ""

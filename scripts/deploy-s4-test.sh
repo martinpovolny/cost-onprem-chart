@@ -95,6 +95,18 @@ echo_info "Creating namespace: $NAMESPACE"
 kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 echo_success "Namespace ready"
 
+# Skip re-deployment if S4 is already running and credentials exist
+if helm status s4 -n "$NAMESPACE" >/dev/null 2>&1 && \
+   kubectl get secret s4-credentials -n "$NAMESPACE" >/dev/null 2>&1; then
+    echo_success "S4 already deployed in namespace $NAMESPACE — skipping re-deploy"
+    S4_ACCESS_KEY=$(kubectl get secret s4-credentials -n "$NAMESPACE" \
+        -o jsonpath='{.data.access-key}' | base64 -d)
+    S4_SECRET_KEY=$(kubectl get secret s4-credentials -n "$NAMESPACE" \
+        -o jsonpath='{.data.secret-key}' | base64 -d)
+    echo_info "Credentials: Access Key: $S4_ACCESS_KEY"
+    exit 0
+fi
+
 # Generate S4 credentials
 echo_info "Generating S4 credentials..."
 S4_ACCESS_KEY="s4admin"

@@ -14,8 +14,9 @@
 #   KOKU_IMAGE_REPOSITORY  koku image repo (default: quay.io/martin_povolny/koku on arm64)
 #   KOKU_IMAGE_TAG         koku image tag (default: latest)
 #   S3_ENDPOINT/PORT/SSL   S4 coordinates (defaults set below)
-#   KAFKA_BROKER_STORAGE   Kafka broker PVC size (default: 500Mi)
-#   KAFKA_CONTROLLER_STORAGE Kafka controller PVC size (default: 500Mi)
+#   KAFKA_BACKEND          redpanda (default) or amqstreams
+#   KAFKA_BROKER_STORAGE   AMQ Streams broker PVC size (default: 500Mi, amqstreams only)
+#   KAFKA_CONTROLLER_STORAGE AMQ Streams controller PVC size (default: 500Mi, amqstreams only)
 #
 # CRC prerequisites (run once, then `crc start -p ~/.crc-secret.json`):
 #   crc config set enable-cluster-monitoring true
@@ -28,6 +29,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Ensure ~/bin is in PATH so crc is found when invoked non-interactively
+# (e.g. from make, SSH, or a CI step where the login shell profile is not sourced).
+[[ ":$PATH:" != *":$HOME/bin:"* ]] && export PATH="$PATH:$HOME/bin"
 
 # ---------------------------------------------------------------------------
 # Architecture detection
@@ -66,7 +71,11 @@ S3_ENDPOINT="${S3_ENDPOINT:-s4.${NAMESPACE}.svc.cluster.local}"
 S3_PORT="${S3_PORT:-7480}"
 S3_USE_SSL="${S3_USE_SSL:-false}"
 
-# Kafka PVC sizes — default chart values (100Gi/20Gi) exceed CRC hostpath capacity.
+# Kafka backend: redpanda (lighter, no operator) or amqstreams (OLM-based, production-grade)
+KAFKA_BACKEND="${KAFKA_BACKEND:-redpanda}"
+
+# AMQ Streams PVC sizes — only used when KAFKA_BACKEND=amqstreams.
+# Default chart values (100Gi/20Gi) exceed CRC hostpath capacity.
 KAFKA_BROKER_STORAGE="${KAFKA_BROKER_STORAGE:-500Mi}"
 KAFKA_CONTROLLER_STORAGE="${KAFKA_CONTROLLER_STORAGE:-500Mi}"
 
@@ -94,7 +103,7 @@ step1_login() {
     eval "$(crc oc-env)"
 
     if [ -z "$CRC_PASSWORD" ]; then
-        CRC_PASSWORD=$(crc console --credentials 2>/dev/null | awk '/kubeadmin/{print $NF}')
+        CRC_PASSWORD=$(crc console --credentials 2>/dev/null | awk '/kubeadmin/{for(i=1;i<NF;i++) if($i=="-p") print $(i+1)}')
     fi
     [ -z "$CRC_PASSWORD" ] && err "Could not detect CRC kubeadmin password. Set CRC_PASSWORD."
 
@@ -107,14 +116,19 @@ step1_login() {
 }
 
 # ---------------------------------------------------------------------------
-# Step 2 — Kafka (AMQ Streams)
+# Step 2 — Kafka broker (Redpanda or AMQ Streams)
 # ---------------------------------------------------------------------------
 step2_kafka() {
-    info "Step 2: Deploy Kafka (AMQ Streams)"
-    KAFKA_BROKER_STORAGE="$KAFKA_BROKER_STORAGE" \
-    KAFKA_CONTROLLER_STORAGE="$KAFKA_CONTROLLER_STORAGE" \
-        "$SCRIPT_DIR/deploy-kafka.sh"
-    success "Kafka ready"
+    if [ "$KAFKA_BACKEND" = "amqstreams" ]; then
+        info "Step 2: Deploy Kafka (AMQ Streams)"
+        KAFKA_BROKER_STORAGE="$KAFKA_BROKER_STORAGE" \
+        KAFKA_CONTROLLER_STORAGE="$KAFKA_CONTROLLER_STORAGE" \
+            "$SCRIPT_DIR/deploy-kafka.sh"
+    else
+        info "Step 2: Deploy Redpanda (Kafka-compatible, KAFKA_BACKEND=redpanda)"
+        "$SCRIPT_DIR/deploy-redpanda.sh"
+    fi
+    success "Kafka broker ready"
 }
 
 # ---------------------------------------------------------------------------
@@ -134,6 +148,12 @@ step4_s4() {
     info "Step 4: Deploy S4 object storage"
     "$SCRIPT_DIR/deploy-s4-test.sh" "$NAMESPACE"
     success "S4 ready"
+
+    # Read S4 credentials (secret uses access-key / secret-key, not AWS_* names)
+    S4_ACCESS_KEY=$(kubectl get secret s4-credentials -n "$NAMESPACE" \
+        -o jsonpath='{.data.access-key}' | base64 -d)
+    S4_SECRET_KEY=$(kubectl get secret s4-credentials -n "$NAMESPACE" \
+        -o jsonpath='{.data.secret-key}' | base64 -d)
 }
 
 # ---------------------------------------------------------------------------
@@ -150,6 +170,8 @@ step5_chart() {
     S3_ENDPOINT="$S3_ENDPOINT" \
     S3_PORT="$S3_PORT" \
     S3_USE_SSL="$S3_USE_SSL" \
+    S3_ACCESS_KEY="${S4_ACCESS_KEY:-}" \
+    S3_SECRET_KEY="${S4_SECRET_KEY:-}" \
         "$SCRIPT_DIR/install-helm-chart.sh" "${helm_args[@]}"
 
     success "Helm chart deployed"

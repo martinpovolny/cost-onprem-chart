@@ -509,6 +509,16 @@ spec:
     strictBackchannel: false
   ingress:
     enabled: true
+  # Limit JVM heap so Keycloak stays within the 1Gi container limit on CRC.
+  # JAVA_OPTS_KC_HEAP overrides the default heap (which would be ~70% of RAM).
+  # spec.resources is the supported way to set requests/limits in operator v2+.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 640Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
   unsupported:
     podTemplate:
       spec:
@@ -517,13 +527,8 @@ spec:
           env:
           - name: KC_PROXY
             value: edge
-          resources:
-            requests:
-              cpu: 500m
-              memory: 1Gi
-            limits:
-              cpu: 1000m
-              memory: 2Gi
+          - name: JAVA_OPTS_KC_HEAP
+            value: "-Xms64m -Xmx512m"
 EOF
         echo_success "✓ Keycloak instance created"
     fi
