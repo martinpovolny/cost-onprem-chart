@@ -301,7 +301,6 @@ costManagement:
       default:
         replicas: 1
         queue: celery
-        concurrency: 5
         resources:
           requests:
             cpu: 100m
@@ -314,7 +313,6 @@ costManagement:
         # On-prem: 1 replica to fit cluster constraints (SaaS uses 2)
         replicas: 1
         queue: priority
-        concurrency: 5
         resources:
           requests:
             cpu: 250m
@@ -327,7 +325,6 @@ costManagement:
         # OCP-ONLY: Disabled - primary use is delete_openshift_on_cloud_data for OCP-on-cloud
         replicas: 0
         queue: refresh
-        concurrency: 5
         resources:
           requests:
             cpu: 100m
@@ -339,7 +336,6 @@ costManagement:
       summary:
         replicas: 1
         queue: summary
-        concurrency: 5
         resources:
           requests:
             cpu: 250m
@@ -352,7 +348,6 @@ costManagement:
         # OCP-ONLY: Disabled - HCS only supports AWS, Azure, GCP (not OCP)
         replicas: 0
         queue: hcs
-        concurrency: 5
         resources:
           requests:
             cpu: 100m
@@ -365,7 +360,6 @@ costManagement:
         # OCP-ONLY: Disabled - OCP uses PUSH model via Kafka, not PULL from S3
         replicas: 0
         queue: download
-        concurrency: 5
         resources:
           requests:
             cpu: 200m
@@ -377,7 +371,6 @@ costManagement:
       ocp:
         replicas: 1
         queue: ocp
-        concurrency: 5
         resources:
           requests:
             cpu: 250m
@@ -389,7 +382,6 @@ costManagement:
       costModel:
         replicas: 1
         queue: cost_model
-        concurrency: 5
         resources:
           requests:
             cpu: 100m
@@ -402,7 +394,6 @@ costManagement:
         # Disabled in SaaS - not needed for on-prem
         replicas: 0
         queue: subs_extraction
-        concurrency: 5
         resources:
           requests:
             cpu: 100m
@@ -415,7 +406,6 @@ costManagement:
         # Disabled in SaaS - not needed for on-prem
         replicas: 0
         queue: subs_transmission
-        concurrency: 5
         resources:
           requests:
             cpu: 100m

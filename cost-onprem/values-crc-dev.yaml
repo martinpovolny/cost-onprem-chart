@@ -1,0 +1,59 @@
+# CRC dev overlay — layer after values-crc.yaml.
+# Reduces pod count and memory limits for a single-developer local environment.
+# See docs/reduction.md for rationale and trade-offs for each setting.
+#
+# Usage:
+#   helm upgrade cost-onprem ./cost-onprem -n cost-onprem \
+#     -f cost-onprem/values.yaml \
+#     -f cost-onprem/values-crc.yaml \
+#     -f cost-onprem/values-crc-dev.yaml
+
+# Drop 5 pods + ~4.5Gi limits. Re-enable when testing ROS recommendations.
+ros:
+  enabled: false
+
+costManagement:
+  api:
+    env:
+      GUNICORN_WORKERS: "1"   # 4 threads still handles solo-dev concurrency
+
+  masu:
+    env:
+      GUNICORN_WORKERS: "1"
+      INITIAL_INGEST_NUM_MONTHS: "1"   # faster first-provider ingest
+
+  celery:
+    workers:
+      # All active queues consolidated into one worker.
+      # Each worker runs concurrency=1 (Django default), so a single pod
+      # listening to all queues has the same throughput as five separate pods.
+      # Trade-off: a stuck summary task can delay priority tasks.
+      default:
+        queue: celery,priority,ocp,summary,cost_model
+        resources:
+          requests:
+            cpu: 25m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 2Gi   # summary tasks can spike; match the old summary limit
+      priority:
+        replicas: 0
+      ocp:
+        replicas: 0
+      summary:
+        replicas: 0
+      costModel:
+        replicas: 0
+
+database:
+  server:
+    storage:
+      size: "10Gi"   # requires PVC delete + reinstall if already provisioned at 30Gi
+
+valkey:
+  persistence:
+    size: "1Gi"      # requires PVC delete + reinstall if already provisioned at 5Gi
+
+monitoring:
+  enabled: false
