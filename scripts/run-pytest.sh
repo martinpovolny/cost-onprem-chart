@@ -55,6 +55,9 @@
 
 set -e
 
+# Add CRC-bundled oc to PATH if not already present
+[[ ":$PATH:" != *":$HOME/.crc/bin/oc:"* ]] && [ -d "$HOME/.crc/bin/oc" ] && export PATH="$PATH:$HOME/.crc/bin/oc"
+
 # Script configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
