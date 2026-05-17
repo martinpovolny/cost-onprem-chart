@@ -119,6 +119,10 @@ crc-clean:
 ## Run crc-deploy (or crc-deploy-*-dev) afterwards to rebuild from scratch.
 crc-wipe: crc-clean
 	@echo "==> Removing infra namespaces (kafka, $(KEYCLOAK_NS), $(NAMESPACE))"
+	@echo "==> Stripping KafkaTopic finalizers (prevents namespace hang after Redpanda removal)"
+	kubectl get kafkatopic -n kafka -o name 2>/dev/null \
+	    | xargs -I{} kubectl patch {} -n kafka \
+	      -p '{"metadata":{"finalizers":[]}}' --type=merge 2>/dev/null || true
 	helm uninstall redpanda -n kafka --ignore-not-found 2>/dev/null || true
 	helm uninstall s4 -n $(NAMESPACE) --ignore-not-found 2>/dev/null || true
 	kubectl delete namespace kafka --ignore-not-found --wait 2>/dev/null || true
