@@ -166,7 +166,10 @@ step4_s4() {
         S4_SECRET_KEY=$(kubectl get secret s4-credentials -n "$NAMESPACE" \
             -o jsonpath='{.data.AWS_SECRET_ACCESS_KEY}' | base64 -d)
     fi
-    [ -z "$S4_ACCESS_KEY" ] && { error "Could not read S4 access key from s4-credentials secret"; exit 1; }
+    if [ -z "$S4_ACCESS_KEY" ]; then
+        err "Could not read S4 access key from s4-credentials secret"
+        exit 1
+    fi
 }
 
 # ---------------------------------------------------------------------------
