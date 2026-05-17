@@ -45,10 +45,21 @@ endif
 #   make crc-deploy KAFKA_BACKEND=amqstreams
 KAFKA_BACKEND ?= redpanda
 
+# Dev overlay — reduces pod count and memory limits for a single-developer environment.
+# See docs/reduction.md for full details.
+# VALUES_EXTRA is colon-separated; arch overlay is always prepended on arm64 by default.
+ifeq ($(ARCH),arm64)
+  DEV_VALUES_EXTRA ?= $(CURDIR)/cost-onprem/values-crc-arm64.yaml:$(CURDIR)/cost-onprem/values-crc-dev.yaml
+else
+  DEV_VALUES_EXTRA ?= $(CURDIR)/cost-onprem/values-crc-dev.yaml
+endif
+
 # ---------------------------------------------------------------------------
 # Targets
 # ---------------------------------------------------------------------------
-.PHONY: crc-all crc-deploy crc-redeploy crc-test crc-test-ui crc-test-ros crc-info crc-logs
+.PHONY: crc-all crc-deploy crc-redeploy crc-redeploy-dev \
+        crc-deploy-arm64-dev crc-deploy-amd64-dev \
+        crc-test crc-test-ui crc-test-ros crc-info crc-logs
 
 ## Full deploy + test cycle (no UI tests, no ROS tests on arm64)
 crc-all: crc-deploy crc-test
@@ -65,6 +76,30 @@ crc-redeploy:
 	@echo "==> Reinstalling Helm chart (skipping infra)"
 	ARCH=$(ARCH) KEYCLOAK_OPERATOR=$(KEYCLOAK_OPERATOR) NAMESPACE=$(NAMESPACE) \
 	    ./scripts/deploy-to-crc.sh --skip-infra
+
+## Reinstall chart with dev overlay (consolidated workers, ROS off, smaller gunicorn)
+## Works on both arches; arm64 overlay is included automatically via DEV_VALUES_EXTRA.
+crc-redeploy-dev:
+	@echo "==> Reinstalling Helm chart with dev overlay (skipping infra)"
+	ARCH=$(ARCH) KEYCLOAK_OPERATOR=$(KEYCLOAK_OPERATOR) NAMESPACE=$(NAMESPACE) \
+	    VALUES_EXTRA="$(DEV_VALUES_EXTRA)" SKIP_S3_SETUP=true \
+	    ./scripts/deploy-to-crc.sh --skip-infra
+
+## [arm64 / Apple Silicon] Full deploy with arm64 image override and dev overlay
+crc-deploy-arm64-dev:
+	@echo "==> Full deploy on arm64 with dev overlay"
+	ARCH=arm64 KEYCLOAK_OPERATOR=community NAMESPACE=$(NAMESPACE) \
+	    KAFKA_BACKEND=$(KAFKA_BACKEND) \
+	    VALUES_EXTRA="$(CURDIR)/cost-onprem/values-crc-arm64.yaml:$(CURDIR)/cost-onprem/values-crc-dev.yaml" \
+	    ./scripts/deploy-to-crc.sh
+
+## [amd64 / x86_64] Full deploy with dev overlay
+crc-deploy-amd64-dev:
+	@echo "==> Full deploy on amd64 with dev overlay"
+	ARCH=amd64 KEYCLOAK_OPERATOR=rhbk NAMESPACE=$(NAMESPACE) \
+	    KAFKA_BACKEND=$(KAFKA_BACKEND) \
+	    VALUES_EXTRA="$(CURDIR)/cost-onprem/values-crc-dev.yaml" \
+	    ./scripts/deploy-to-crc.sh
 
 ## Run tests — skip ROS (expected failures when ros.enabled=false) and UI
 crc-test:

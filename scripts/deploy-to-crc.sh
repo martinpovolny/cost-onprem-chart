@@ -17,6 +17,9 @@
 #   KAFKA_BACKEND          redpanda (default) or amqstreams
 #   KAFKA_BROKER_STORAGE   AMQ Streams broker PVC size (default: 500Mi, amqstreams only)
 #   KAFKA_CONTROLLER_STORAGE AMQ Streams controller PVC size (default: 500Mi, amqstreams only)
+#   VALUES_EXTRA           Colon-separated extra -f overlays appended after values-crc.yaml
+#                          (default on arm64: values-crc-arm64.yaml; empty on amd64)
+#                          Example: VALUES_EXTRA="cost-onprem/values-crc-arm64.yaml:cost-onprem/values-crc-dev.yaml"
 #
 # CRC prerequisites (run once, then `crc start -p ~/.crc-secret.json`):
 #   crc config set enable-cluster-monitoring true
@@ -174,7 +177,11 @@ step5_chart() {
 
     # install-helm-chart.sh does `cd "$SCRIPT_DIR"` internally, so -f paths must be absolute.
     local helm_args=(-f "${REPO_ROOT}/cost-onprem/values-crc.yaml")
-    [ -n "$VALUES_EXTRA" ] && helm_args+=(-f "$VALUES_EXTRA")
+    # VALUES_EXTRA is colon-separated; each entry becomes an additional -f overlay.
+    IFS=: read -ra _extras <<< "${VALUES_EXTRA:-}"
+    for _f in "${_extras[@]}"; do
+        [ -n "$_f" ] && helm_args+=(-f "$_f")
+    done
 
     USE_LOCAL_CHART=true \
     S3_ENDPOINT="$S3_ENDPOINT" \
@@ -194,7 +201,7 @@ cd "$REPO_ROOT"
 
 info "Architecture: $ARCH"
 info "Keycloak operator: $KEYCLOAK_OPERATOR"
-[ -n "$VALUES_EXTRA" ] && info "Extra values: $VALUES_EXTRA"
+[ -n "$VALUES_EXTRA" ] && info "Extra values: ${VALUES_EXTRA//:/ }"
 
 step1_login
 
