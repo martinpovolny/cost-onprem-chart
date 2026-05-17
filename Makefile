@@ -59,6 +59,7 @@ endif
 # ---------------------------------------------------------------------------
 .PHONY: crc-all crc-deploy crc-redeploy crc-redeploy-dev \
         crc-deploy-arm64-dev crc-deploy-amd64-dev \
+        crc-clean crc-reset \
         crc-test crc-test-ui crc-test-ros crc-info crc-logs
 
 ## Full deploy + test cycle (no UI tests, no ROS tests on arm64)
@@ -100,6 +101,30 @@ crc-deploy-amd64-dev:
 	    KAFKA_BACKEND=$(KAFKA_BACKEND) \
 	    VALUES_EXTRA="$(CURDIR)/cost-onprem/values-crc-dev.yaml" \
 	    ./scripts/deploy-to-crc.sh
+
+## Uninstall the cost-onprem chart; leave kafka, keycloak, and s4 running.
+## Cleans up orphaned StatefulSets/jobs that helm uninstall sometimes leaves behind.
+## PVCs are intentionally kept — the hostpath provisioner mounts a local directory
+## so the existing database survives for the next deploy.
+crc-clean:
+	@echo "==> Uninstalling cost-onprem chart (keeping infra)"
+	helm uninstall cost-onprem -n $(NAMESPACE) --ignore-not-found || true
+	kubectl delete statefulset -n $(NAMESPACE) \
+	    -l app.kubernetes.io/instance=cost-onprem --ignore-not-found 2>/dev/null || true
+	kubectl delete job -n $(NAMESPACE) \
+	    -l app.kubernetes.io/instance=cost-onprem --ignore-not-found 2>/dev/null || true
+
+## Full reset: remove chart + all infra namespaces (kafka, keycloak, cost-onprem).
+## Leaves the CRC cluster in the state it was in right after `crc start`.
+## Run crc-deploy (or crc-deploy-*-dev) afterwards to rebuild from scratch.
+crc-reset: crc-clean
+	@echo "==> Removing infra namespaces (kafka, $(KEYCLOAK_NS), $(NAMESPACE))"
+	helm uninstall redpanda -n kafka --ignore-not-found 2>/dev/null || true
+	helm uninstall s4 -n $(NAMESPACE) --ignore-not-found 2>/dev/null || true
+	kubectl delete namespace kafka --ignore-not-found --wait 2>/dev/null || true
+	kubectl delete namespace $(KEYCLOAK_NS) --ignore-not-found --wait 2>/dev/null || true
+	kubectl delete namespace $(NAMESPACE) --ignore-not-found --wait 2>/dev/null || true
+	@echo "==> Reset complete. Run 'make crc-deploy' (or crc-deploy-arm64-dev / crc-deploy-amd64-dev) to redeploy."
 
 ## Run tests — skip ROS (expected failures when ros.enabled=false) and UI
 crc-test:
