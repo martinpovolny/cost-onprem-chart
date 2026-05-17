@@ -14,3 +14,22 @@ targets.  The following newer targets are missing from it:
 | `crc-wipe` | Full namespace teardown — resets to post-`crc start` state |
 
 Update the comment block to match and keep it in sync whenever new targets are added.
+
+## crc-wipe hangs on kafka namespace (KafkaTopic finalizers)
+
+`kubectl delete namespace kafka --wait` blocks indefinitely when Redpanda is already
+uninstalled: the five `KafkaTopic` CRs it created still have finalizers, but the
+Redpanda controller that would clear them is gone.
+
+**Workaround (manual):**
+```bash
+eval "$(crc oc-env)"
+kubectl get kafkatopic -n kafka -o name \
+  | xargs -I{} kubectl patch {} -n kafka -p '{"metadata":{"finalizers":[]}}' --type=merge
+```
+After patching, the namespace terminates in a few seconds.
+
+**Proper fix:** `crc-wipe` should strip KafkaTopic (and any other Redpanda CRD)
+finalizers *before* running `helm uninstall redpanda` and *before* deleting the
+namespace, or use `kubectl delete namespace kafka --wait=false` followed by the
+finalizer patch.
