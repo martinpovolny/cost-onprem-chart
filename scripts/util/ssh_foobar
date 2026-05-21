@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# SSH/sync wrapper for foobar (AMD64/x86_64 CRC dev machine at 192.168.77.5).
+# See docs/local_development.md for the full local setup description.
+#
+# Usage:
+#   ./scripts/util/ssh_foobar push [file...]     # rsync files to remote
+#   ./scripts/util/ssh_foobar run [command...]   # run command (or interactive shell)
+#
+# push examples:
+#   ./scripts/util/ssh_foobar push               # sync entire repo (tracked files)
+#   ./scripts/util/ssh_foobar push scripts/deploy-to-crc.sh
+#   ./scripts/util/ssh_foobar push cost-onprem/templates/
+#
+# run examples:
+#   ./scripts/util/ssh_foobar run                # interactive shell
+#   ./scripts/util/ssh_foobar run git status
+#   ./scripts/util/ssh_foobar run make crc-redeploy
+
+REMOTE_HOST="martin@192.168.77.5"
+REMOTE_DIR="/home/martin/Projects/koku/cost-onprem-chart"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOCAL_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+cmd="${1:-}"
+shift || true
+
+case "$cmd" in
+    push)
+        if [ $# -eq 0 ]; then
+            rsync -av --no-perms \
+                --filter=':- .gitignore' \
+                --exclude='.git/' \
+                "$LOCAL_ROOT/" "$REMOTE_HOST:$REMOTE_DIR/"
+        else
+            for target in "$@"; do
+                src="$LOCAL_ROOT/$target"
+                if [ -d "$src" ]; then
+                    rsync -av --no-perms "$src/" "${REMOTE_HOST}:${REMOTE_DIR}/${target}/"
+                else
+                    rsync -av --no-perms "$src" "${REMOTE_HOST}:${REMOTE_DIR}/${target}"
+                fi
+            done
+        fi
+        ;;
+    run)
+        if [ $# -eq 0 ]; then
+            exec ssh -A -t "$REMOTE_HOST" "cd '$REMOTE_DIR' && exec \$SHELL -l"
+        else
+            exec ssh -A "$REMOTE_HOST" "cd '$REMOTE_DIR' && $*"
+        fi
+        ;;
+    *)
+        echo "Usage: $0 push [file...] | run [command...]" >&2
+        exit 1
+        ;;
+esac

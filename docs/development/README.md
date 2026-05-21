@@ -6,6 +6,7 @@ Testing guides, validation procedures, and development resources for Cost Manage
 
 | Document | Description |
 |----------|-------------|
+| **[Local CRC Setup](local-crc-setup.md)** | Two-machine local dev setup (ARM64 MacBook + AMD64 foobar) |
 | **[OCP Dev Setup with S4](ocp-dev-setup-s4.md)** | Set up a dev environment on OCP using S4 instead of ODF |
 | **[UI OAuth Testing](ui-oauth-testing.md)** | Guide for testing UI OAuth flow with Keycloak |
 | **[IQE Testing Setup](iqe-testing-setup.md)** | Prerequisites and setup for IQE integration tests |
