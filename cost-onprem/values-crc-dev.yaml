@@ -15,11 +15,11 @@ ros:
 costManagement:
   api:
     env:
-      GUNICORN_WORKERS: "1"   # 4 threads still handles solo-dev concurrency
+      GUNICORN_WORKERS: "2"
 
   masu:
     env:
-      GUNICORN_WORKERS: "1"
+      GUNICORN_WORKERS: "2"
       INITIAL_INGEST_NUM_MONTHS: "1"   # faster first-provider ingest
 
   celery:
