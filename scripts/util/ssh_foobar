@@ -43,10 +43,12 @@ case "$cmd" in
         fi
         ;;
     run)
+        # Prepend ~/bin so crc and helm are found without a full login shell.
+        local_bin_prefix='export PATH="$HOME/bin:$PATH";'
         if [ $# -eq 0 ]; then
-            exec ssh -A -t "$REMOTE_HOST" "cd '$REMOTE_DIR' && exec \$SHELL -l"
+            exec ssh -A -t "$REMOTE_HOST" "$local_bin_prefix cd '$REMOTE_DIR' && exec \$SHELL -l"
         else
-            exec ssh -A "$REMOTE_HOST" "cd '$REMOTE_DIR' && $*"
+            exec ssh -A "$REMOTE_HOST" "$local_bin_prefix cd '$REMOTE_DIR' && $*"
         fi
         ;;
     *)
