@@ -1147,6 +1147,7 @@ class TestCompleteDataFlow:
             row_count, cpu_hours, mem_gb_hours = summary_stats[0]
             print(f"  ✅ Summary tables populated: {row_count} rows, {float(cpu_hours):.2f} CPU-hours, {float(mem_gb_hours):.2f} GB-hours")
 
+    @pytest.mark.ros
     @pytest.mark.timeout(300)  # 5 minutes for Kruize experiments
     def test_07_kruize_experiments_created(
         self, cluster_config, registered_source, e2e_test_data: dict
@@ -1354,6 +1355,7 @@ class TestCompleteDataFlow:
                 "Kruize typically requires multiple data uploads over several hours."
             )
 
+    @pytest.mark.ros
     def test_09_recommendations_accessible_via_api(
         self,
         gateway_url: str,

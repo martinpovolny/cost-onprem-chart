@@ -75,6 +75,7 @@ class TestDeploymentHealth:
             "app.kubernetes.io/component=ros-optimization"
         ), "Kruize pod is not ready"
 
+    @pytest.mark.ros
     def test_ros_api_pod_ready(self, cluster_config):
         """Verify ROS API pod is ready."""
         assert check_pod_ready(
@@ -82,6 +83,7 @@ class TestDeploymentHealth:
             "app.kubernetes.io/component=ros-api"
         ), "ROS API pod is not ready"
 
+    @pytest.mark.ros
     def test_ros_processor_pod_ready(self, cluster_config):
         """Verify ROS Processor pod is ready."""
         assert check_pod_ready(

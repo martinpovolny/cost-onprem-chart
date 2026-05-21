@@ -36,6 +36,7 @@ def get_fresh_token(keycloak_config, http_session: requests.Session) -> dict:
 class TestE2ESmoke:
     """Quick smoke tests for E2E validation."""
 
+    @pytest.mark.ros
     def test_all_critical_pods_running(self, cluster_config, database_deployed):
         """Verify all critical pods are running."""
         critical_components = [
