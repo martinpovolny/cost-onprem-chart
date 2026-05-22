@@ -12,6 +12,22 @@ For Cursor IDE users, see `.cursor/rules/` for auto-loaded context rules.
 - `debug-e2e.md` - Debug E2E test failures
 - `download-ci-artifacts.md` - Download CI artifacts from Prow/GCS
 
+## CRC Remote Machine (foobar)
+
+When running deployments or tests on the AMD64 CRC machine (foobar, `martin@192.168.77.5`)
+via `scripts/util/ssh_foobar`, monitor CRC health actively:
+
+- After starting CRC, poll `~/bin/crc status` until `OpenShift: Running` before proceeding.
+- **If CRC does not reach `OpenShift: Running` within 15 minutes, or becomes `Unreachable`
+  and does not recover within 15 minutes: stop waiting, delete the instance, and recreate it:**
+  ```bash
+  ssh -o ConnectTimeout=10 martin@192.168.77.5 "~/bin/crc stop --force && ~/bin/crc delete --force && nohup ~/bin/crc start -p ~/.crc-secret.json > /tmp/crc-start.log 2>&1 &"
+  ```
+- Once CRC is running, always start with `make crc-wipe` before deploying to ensure a clean state.
+- See `docs/development/local-crc-setup.md` for the full local setup description.
+
+---
+
 ## Project Overview
 
 This is a Helm chart for deploying Red Hat Cost Management on-premise (cost-onprem).
