@@ -23,8 +23,14 @@ while true; do
   echo "$(date '+%H:%M:%S')  $snapshot"
 
   if echo "$snapshot" | grep -q "OpenShift:.*Running"; then
-    echo "CRC ready"
-    exit 0
+    # crc status can briefly show Running before the API tunnel is actually up.
+    # Verify kubectl can reach the API before declaring success.
+    if $SSH "export PATH=\"\$HOME/bin:\$PATH\"; eval \"\$(~/bin/crc oc-env 2>/dev/null)\"; kubectl get nodes --request-timeout=10s &>/dev/null" 2>/dev/null; then
+      echo "CRC ready — API verified"
+      exit 0
+    else
+      echo "$(date '+%H:%M:%S')  API not yet reachable, waiting..."
+    fi
   fi
 
   if [ "$snapshot" != "$last_snapshot" ]; then
