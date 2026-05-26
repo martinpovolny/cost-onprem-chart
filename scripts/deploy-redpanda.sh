@@ -83,8 +83,20 @@ if kubectl get scc privileged &>/dev/null 2>&1; then
         || err "oc CLI not found in PATH ($PATH). Required to grant SCC on OpenShift."
 
     info "OpenShift detected — pre-creating redpanda SA and granting privileged SCC..."
-    kubectl create serviceaccount redpanda -n "$KAFKA_NAMESPACE" \
-        --dry-run=client -o yaml | kubectl apply -f -
+    # Create the SA with Helm ownership labels/annotations so Helm can adopt it.
+    # Without these, 'helm install' fails with "invalid ownership metadata".
+    kubectl apply -f - <<EOF
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: redpanda
+  namespace: ${KAFKA_NAMESPACE}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: redpanda
+    meta.helm.sh/release-namespace: ${KAFKA_NAMESPACE}
+EOF
 
     if ! oc adm policy add-scc-to-user privileged \
             "system:serviceaccount:${KAFKA_NAMESPACE}:redpanda" 2>&1 \
