@@ -8,12 +8,17 @@
 #   crc setup && crc start -p ~/.crc-secret.json
 #
 # Usage:
-#   make crc-deploy          # deploy all components (arch auto-detected)
-#   make crc-test            # run tests, skip ROS and UI
-#   make crc-test-ui         # run tests including UI (requires display)
-#   make crc-all             # deploy + test
-#   make crc-redeploy        # uninstall chart only, then reinstall (keep kafka/keycloak/s4)
-#   make crc-info            # show current cluster state
+#   make crc-deploy          	# deploy all components (arch auto-detected)
+#   make crc-test            	# run tests, skip ROS and UI
+#   make crc-test-ui         	# run tests including UI (requires display)
+#   make crc-all             	# deploy + test
+#   make crc-redeploy        	# uninstall chart only, then reinstall (keep kafka/keycloak/s4)
+#   make crc-info            	# show current cluster state
+#   make crc-redeploy-dev    	# Reinstall chart with dev overlay (skip infra)
+#   make crc-deploy-arm64-dev	# Full deploy on arm64/Apple Silicon with dev overlay
+#   make crc-deploy-amd64-dev	# Full deploy on amd64/x86_64 with dev overlay
+#   make crc-clean 		# Uninstall chart only (keep kafka/keycloak/s4, keep PVCs)
+#   make crc-wipe		# Full namespace teardown — resets to post-`crc start` state
 
 # ---------------------------------------------------------------------------
 # Architecture detection

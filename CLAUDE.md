@@ -38,10 +38,12 @@ via `scripts/util/ssh_foobar`, monitor CRC health actively:
 This is a Helm chart for deploying Red Hat Cost Management on-premise (cost-onprem).
 It includes comprehensive pytest-based testing infrastructure.
 
-### Key Directories
+### Key Directories and files
+- `Makefile`
 - `cost-onprem/` - Helm chart templates and values
 - `tests/` - Pytest test suite
 - `scripts/` - Deployment and testing scripts
+- `scripts/util/` - Local testing scripts, helpful commands created during a coding session.
 - `docs/` - Documentation
 
 ### Requirements
@@ -111,6 +113,7 @@ NAMESPACE=cost-onprem ./scripts/run-pytest.sh --no-ui
 - `integration` - Multi-component tests
 - `extended` - Long-running tests (skipped by default in CI)
 - `smoke` - Quick validation tests
+- `ros` - Tests that require ROS
 
 ### Test Cleanup
 ```bash
