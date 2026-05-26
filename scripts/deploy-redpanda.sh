@@ -76,7 +76,8 @@ kubectl get namespace "$KAFKA_NAMESPACE" &>/dev/null || kubectl create namespace
 # helm install. We pre-create the SA and grant the SCC before helm runs so the pod
 # is not rejected on admission.
 OPENSHIFT=false
-if kubectl api-resources 2>/dev/null | grep -q securitycontextconstraints; then
+# Direct SCC query is more reliable than api-resources in nohup/subshell contexts.
+if kubectl get scc privileged &>/dev/null 2>&1; then
     OPENSHIFT=true
     command -v oc &>/dev/null \
         || err "oc CLI not found in PATH ($PATH). Required to grant SCC on OpenShift."
