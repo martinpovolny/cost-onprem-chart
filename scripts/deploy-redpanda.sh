@@ -122,6 +122,21 @@ if [ "$OPENSHIFT" = "true" ]; then
     fi
     info "Privileged SCC granted to system:serviceaccount:${KAFKA_NAMESPACE}:redpanda"
 
+    # Wait for the admission controller to pick up the new ClusterRoleBinding.
+    # On fresh CRC instances there is a propagation delay; proceeding immediately
+    # causes the pod to be rejected even though the binding exists.
+    info "Waiting for SCC grant to propagate to admission controller..."
+    for i in $(seq 1 24); do
+        if oc auth can-i use "scc/privileged" \
+                --as="system:serviceaccount:${KAFKA_NAMESPACE}:redpanda" 2>/dev/null \
+                | grep -q "^yes"; then
+            info "SCC grant confirmed by admission controller"
+            break
+        fi
+        [ "$i" -eq 24 ] && { error "SCC grant did not propagate after 2 minutes"; exit 1; }
+        sleep 5
+    done
+
     # Phase 3: scale to 1 replica and wait for the pod.
     info "Phase 3: scaling Redpanda to 1 replica..."
     helm upgrade redpanda redpanda/redpanda \
