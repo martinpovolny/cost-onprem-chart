@@ -1,11 +1,22 @@
 # Baseline Observability and Debuggability
 
+**Jira:** [COST-7706](https://redhat.atlassian.net/browse/COST-7706)
+
 ## Goal
 
 Identify areas that require baseline observability and debuggability across the
 cost-onprem stack (Helm chart, koku backend, koku-metrics-operator). Produce a
 gap analysis and actionable work items so that on-premise deployments can be
 monitored, diagnosed, and supported without requiring deep tribal knowledge.
+
+### Related Documents
+
+| Document | Contents |
+|----------|----------|
+| [metrics-and-dashboards.md](metrics-and-dashboards.md) | Prometheus metrics, Grafana dashboards, alerting rules — full SaaS vs on-prem comparison with PromQL queries and portability assessment |
+| [logging-and-error-tracking.md](logging-and-error-tracking.md) | Logging configuration, formatters, structured logging, GlitchTip/Sentry integration, Celery error handling, per-component log levels |
+| [observability-review.md](observability-review.md) | Adversarial review of this document — 10 findings on gaps and blind spots |
+| [JIRA-COST-7706.md](JIRA-COST-7706.md) | Original Jira ticket text |
 
 ### Context
 
@@ -67,6 +78,8 @@ MASU exposes internal endpoints for Celery queue inspection:
 
 ### Logging (koku)
 
+> **Detail:** [logging-and-error-tracking.md](logging-and-error-tracking.md)
+
 Koku has mature, configurable logging:
 - Per-module log levels: `DJANGO_LOG_LEVEL`, `KOKU_LOG_LEVEL`,
   `GUNICORN_LOG_LEVEL`, `CELERY_LOG_LEVEL`, `UNLEASH_LOG_LEVEL`
@@ -76,6 +89,8 @@ Koku has mature, configurable logging:
 - CloudWatch handler available (watchtower)
 
 ### Prometheus Metrics (koku)
+
+> **Detail:** [metrics-and-dashboards.md](metrics-and-dashboards.md)
 
 - Django Prometheus middleware (`django_prometheus`) auto-instruments requests
 - Custom counters: report downloads, processing errors, Kafka errors,
@@ -98,6 +113,8 @@ Koku has mature, configurable logging:
 - Status endpoint queries `pg_stat_database` for connection counts
 
 ### Error Tracking — GlitchTip / Sentry (koku)
+
+> **Detail:** [logging-and-error-tracking.md](logging-and-error-tracking.md#error-tracking--glitchtip--sentry)
 
 Koku has built-in Sentry SDK integration (`koku/koku/sentry.py`) controlled by:
 - `KOKU_ENABLE_SENTRY` — toggle (on-prem chart defaults to `"False"`)
@@ -143,6 +160,8 @@ there is no log aggregation guidance (Kibana/Loki/ELK).
 - Leader election with configurable lease timings
 
 ### Grafana Dashboards (koku SaaS — not yet ported to on-prem)
+
+> **Detail:** [metrics-and-dashboards.md](metrics-and-dashboards.md#grafana-dashboards) — full panel-by-panel portability assessment
 
 The koku backend repo (`../koku/dashboards/`) contains 4 Grafana dashboard
 ConfigMaps built for the SaaS deployment:
