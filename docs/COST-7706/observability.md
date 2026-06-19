@@ -16,6 +16,7 @@ monitored, diagnosed, and supported without requiring deep tribal knowledge.
 | [metrics-and-dashboards.md](metrics-and-dashboards.md) | Prometheus metrics, Grafana dashboards, alerting rules — full SaaS vs on-prem comparison with PromQL queries and portability assessment |
 | [logging-and-error-tracking.md](logging-and-error-tracking.md) | Logging configuration, formatters, structured logging, GlitchTip/Sentry integration, Celery error handling, per-component log levels |
 | [observability-review.md](observability-review.md) | Adversarial review of this document — 10 findings on gaps and blind spots |
+| [plan.md](plan.md) | Implementation plan — research TODOs, 28 tickets grouped by theme, phased sequencing |
 | [JIRA-COST-7706.md](JIRA-COST-7706.md) | Original Jira ticket text |
 
 ### Context
