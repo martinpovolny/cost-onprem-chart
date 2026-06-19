@@ -35,9 +35,41 @@ investigation before we can write good tickets.
 **Ask:** Luke Couzens, cost-management team
 
 ### R2. SaaS runbooks — review for on-prem gaps
-- [ ] Access SaaS runbooks at `gitlab.cee.redhat.com/service/app-interface/.../app-sops/hccm/`
-- [ ] List all failure scenarios documented
-- [ ] Compare against `docs/operations/troubleshooting.md`
+
+**Source:** https://gitlab.cee.redhat.com/service/app-interface/-/tree/master/docs/tenant-services/console.redhat.com/app-sops/hccm
+
+**Local:** `../app-interface/docs/tenant-services/console.redhat.com/app-sops/hccm/`
+
+21 runbooks exist. On-prem applicability assessment:
+
+| Runbook | Applies to on-prem? | Notes |
+|---------|---------------------|-------|
+| `App-koku-api-In-hccm-Absent.rst` | **Yes** | API pod down |
+| `App-koku-5xx-In-hccm.rst` | **Yes** | High error rate (adapt from 3scale to django metrics) |
+| `App-koku-api-latency.md` | **Yes** | Slow API (adapt metrics) |
+| `Celery-errors-In-hccm.rst` | **Yes** | Celery task failures |
+| `App-insights-hccm-worker-queue-overload.rst` | **Yes** | Queue backlog — critical for on-prem (no autoscaling) |
+| `App-cost-pod-restarts-In-hccm.rst` | **Yes** | Pod restart loops |
+| `App-job-failures-In-hccm.rst` | **Yes** | CronJob/Job failures |
+| `App-cost-incomplete-manifests-In-hccm.rst` | **Yes** | Data quality issue |
+| `App-cost-invalid-sources-In-hccm.rst` | **Yes** | Source config errors |
+| `App-cost-stale-sources-In-hccm.rst` | **Yes** | Source connectivity |
+| `App-cost-upload-lag-In-hccm.rst` | **Adapt** | Kafka lag — replace MSK metrics with Strimzi/AMQ |
+| `App-cost-sources-lag-In-hccm.rst` | **Adapt** | Kafka lag — same |
+| `RDS-free-space-very-low.rst` | **Adapt** | Replace RDS with local PG PV usage |
+| `hccm-disaster-recovery.md` | **Adapt** | DR procedures need on-prem equivalent |
+| `hccm-smoke-test.md` | **Review** | May inform on-prem post-install checks |
+| `hccm-load-test.md` | **Review** | May inform capacity planning |
+| `SLO.md` | **Adapt** | Replace 3scale SLIs with django metrics |
+| `hccm-slo-availability.md` | **Adapt** | Same |
+| `hccm-slo-latency.md` | **Adapt** | Same |
+| `App-cost-changed-presto-heartbeats-In-hccm.rst` | No | No Presto on-prem |
+| `App-cost-presto-insufficent-resources-In-hccm.rst` | No | No Presto on-prem |
+
+**TODOs:**
+- [x] List all failure scenarios documented (21 runbooks found)
+- [x] Assess on-prem applicability (10 direct, 7 adapt, 2 review, 2 N/A)
+- [ ] Read the 10 directly-applicable runbooks and compare against `docs/operations/troubleshooting.md`
 - [ ] Identify gaps (scenarios that apply to on-prem but aren't documented)
 
 ### R3. Celery worker health probe strategy
