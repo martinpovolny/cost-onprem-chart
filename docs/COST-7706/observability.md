@@ -232,7 +232,7 @@ values.yaml with a sizing guide in `docs/operations/resource-requirements.md`.
    the customer already monitors their infrastructure?
 
 8. **SaaS runbooks / playbooks** — The SaaS PrometheusRules reference
-   runbooks (likely in `gitlab.cee.redhat.com/service/app-interface/.../app-sops/hccm/`).
+   runbooks (likely in `https://gitlab.cee.redhat.com/service/app-interface/-/tree/master/docs/tenant-services/console.redhat.com/app-sops/hccm`).
    These document known failure modes and recovery procedures that have been
    validated in production. **TODO:** Review SaaS runbooks to identify
    which failure scenarios also apply to on-prem and whether our
@@ -635,4 +635,4 @@ release.
 - SaaS Kibana (prod): https://kibana.apps.crcp01ue1.o9m8.p1.openshiftapps.com/app/discover
 - SaaS Kibana (stage): https://kibana.apps.crcs02ue1.urby.p1.openshiftapps.com/app/discover
 - SaaS SLO dashboard: https://grafana.app-sre.devshift.net/d/slo-dashboard/slo-dashboard
-- SaaS runbooks (referenced by alerts): `gitlab.cee.redhat.com/service/app-interface/.../app-sops/hccm/`
+- SaaS runbooks (referenced by alerts): `https://gitlab.cee.redhat.com/service/app-interface/-/tree/master/docs/tenant-services/console.redhat.com/app-sops/hccm`
