@@ -115,6 +115,33 @@ are scraped. The queue gauges are emitted from worker pods (via
 `PROMETHEUS_MULTIPROC_DIR`) which have no ServiceMonitor — so **queue depth
 metrics are likely not collected on-prem**.
 
+### Two Paths for Queue Monitoring
+
+There are two independent mechanisms for observing Celery queue depth:
+
+**Path 1 — Prometheus gauges (used by Grafana dashboards and alerting):**
+The `collect_queue_metrics()` function in `masu/prometheus_stats.py` queries
+Valkey for queue lengths and updates the `*_backlog` Prometheus gauges. These
+gauges are exported via `/metrics` on port 9000. SaaS recording rules
+aggregate them as `koku:celery:*_queue` for use in dashboards and alerts.
+
+On-prem this path is **broken**: the MASU pod (which runs
+`collect_queue_metrics`) has no ServiceMonitor, so the gauges exist but
+aren't scraped. **Fix: add a MASU ServiceMonitor (T4 in the plan).**
+
+**Path 2 — REST JSON endpoints (available for ad-hoc debugging):**
+MASU exposes three REST endpoints that return queue data as JSON:
+- `/api/cost-management/v1/masu/celery_queue_lengths/` — queue depths
+- `/api/cost-management/v1/masu/celery_queue_tasks/` — queued task details
+  (filterable by queue name and task name)
+- `/api/cost-management/v1/masu/running_celery_tasks/` — active task IDs
+
+These endpoints call `collect_queue_metrics()` on each request and also
+use `celery.control.inspect()` to query worker state. They work on-prem
+today (accessible via `kubectl port-forward` to the MASU pod) and do not
+depend on Prometheus. They are useful for ad-hoc debugging but not suitable
+for alerting or dashboarding (no time-series, no scraping).
+
 ### Histograms
 
 | Metric | Labels | Description |
