@@ -28,6 +28,8 @@ monitored, diagnosed, and supported without requiring deep tribal knowledge.
 | [COST-7692](https://redhat.atlassian.net/browse/COST-7692) | Implement monitoring and alerting (ServiceMonitors, PrometheusRules, Events) | To Do — Elkana Hendler |
 | [COST-7780](https://redhat.atlassian.net/browse/COST-7780) | Investigate must-gather support for cost-management on-prem | New |
 | [COST-7782](https://redhat.atlassian.net/browse/COST-7782) | Port SaaS alerting rules and Grafana dashboards to on-prem chart | New |
+| [COST-7783](https://redhat.atlassian.net/browse/COST-7783) | Investigate Celery worker observability for on-prem | New |
+| [COST-7784](https://redhat.atlassian.net/browse/COST-7784) | Coordinate operator observability with COST-7692 | New |
 
 ### Context
 
