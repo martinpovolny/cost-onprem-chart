@@ -75,11 +75,40 @@ non-numeric name). With pod-level `runAsNonRoot`, kubelet fails with
 `CreateContainerConfigError` unless container `runAsUser: 1000` is set.
 See operator PR `fix/migrate-runasuser`.
 
+
+## Operator acceptance gate (`@pytest.mark.operator`)
+
+Tests that are intentionally part of the operator acceptance gate carry the
+`operator` marker. This is an **allowlist** seeded from a known-green clusterbot
+run (auth / infrastructure / sources / smoke slices), excluding known failures
+and flakes:
+
+- `test_oauth_proxy_no_tls_errors` (UI oauth-proxy / TLS — UI stage incomplete)
+- `test_sources_endpoint_accessible_via_gateway` (intermittent Envoy 503)
+
+Run the gate:
+
+```bash
+export NAMESPACE=cost-tests
+export HELM_RELEASE_NAME=cost-onprem
+export KEYCLOAK_NAMESPACE=keycloak
+export DEPLOYMENT_MODE=operator
+export KAFKA_NAMESPACE=kafka
+export STORAGE_SECRET_NAME=cost-onprem-storage-credentials
+
+./scripts/run-pytest.sh --operator-gate
+# equivalent:
+# ./scripts/run-pytest.sh -m 'operator' --no-ui
+```
+
+Grow the marker as more operator stages go green; do not mark tests solely
+because they passed once under load that is known to flake.
+
 ## Recommended first pytest pass (once CR is Ready)
 
 ```bash
 NAMESPACE=cost-tests HELM_RELEASE_NAME=cost-onprem DEPLOYMENT_MODE=operator \
-  ./scripts/run-pytest.sh --auth --infrastructure --smoke --no-ui
+  ./scripts/run-pytest.sh --operator-gate
 ```
 
 Expect skips/failures around Ingress/RBAC/UI until those stages land in the

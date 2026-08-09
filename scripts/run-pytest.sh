@@ -36,6 +36,7 @@
 #
 # Filter Options:
 #   --smoke             Run only smoke tests (quick validation)
+#   --operator-gate     Run operator acceptance-gate tests (-m operator)
 #   --slow              Include slow tests (processing, recommendations)
 #
 # Setup Options:
@@ -55,6 +56,7 @@
 #   ./run-pytest.sh                         # Run all tests (including UI)
 #   ./run-pytest.sh --no-ui                 # Run all tests except UI
 #   ./run-pytest.sh --smoke                 # Run smoke tests only
+#   DEPLOYMENT_MODE=operator ./run-pytest.sh --operator-gate --no-ui
 #   ./run-pytest.sh --helm                  # Run Helm suite only
 #   ./run-pytest.sh --auth --ros            # Run auth and ROS suites
 #   ./run-pytest.sh --e2e --smoke           # Run E2E smoke tests
@@ -422,6 +424,16 @@ main() {
             # Filter options
             --smoke)
                 pytest_markers+=("smoke")
+                shift
+                ;;
+            --operator-gate)
+                # Allowlisted tests known-green against operator-managed deploys
+                pytest_markers+=("operator")
+                # Operator gate is a runtime suite; never include Playwright UI by default
+                include_ui=false
+                exclude_ui=true
+                # Force operator harness mode when not already set
+                export DEPLOYMENT_MODE="${DEPLOYMENT_MODE:-operator}"
                 shift
                 ;;
             --slow)
